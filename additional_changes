@@ -1,0 +1,9 @@
+Additional changes need made to the following (unreleased) files:
+
+soulstruct_havok/utilities/mopper.py.mopper
+    mopper_input = Path(tempfile.TemporaryDirectory().name).parent / "mopper_input.txt"
+    mopp_output = Path(tempfile.TemporaryDirectory().name) / "mopp.json"
+
+scipy/__init__.py._delvewheel_patch_1_7_0
+    os.environ['PATH'] += ':' + libs_dir
+    # os.add_dll_directory(libs_dir)
