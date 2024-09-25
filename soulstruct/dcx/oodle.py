@@ -16,7 +16,13 @@ __all__ = [
     "LOAD_DLL",
 ]
 
-import ctypes as c
+#! BUTTER
+import os
+os.environ['PATH'] += ':/opt/homebrew/bin' #wine, other apps
+os.environ['PATH'] += ':/opt/custom/bin' #texconv shortcut
+import zugbruecke.ctypes as c
+#!
+
 import logging
 import typing as tp
 from enum import IntEnum
@@ -245,7 +251,7 @@ def decompress(comp_buf: bytes, decompressed_size: int):
         comp_buf_size,
         raw_buf_array,
         decompressed_size,
-        FuzzSafe.Yes,
+        int(FuzzSafe.Yes),
         CheckCRC.No,
         Verbosity.Null,
         c.c_void_p(),
@@ -254,7 +260,7 @@ def decompress(comp_buf: bytes, decompressed_size: int):
         c.c_void_p(),
         c.c_void_p(),
         0,
-        DecodeThreadPhase.Unthreaded,
+        int(DecodeThreadPhase.Unthreaded),
     )
 
     if actual_raw_buf_size == 0:
@@ -335,7 +341,6 @@ def LOAD_DLL(dll_path: str = ""):
     )
 
     __DLL_Decompress = __DLL["OodleLZ_Decompress"]
-    __DLL_Decompress.restype = c.c_long
     __DLL_Decompress.argtypes = (
         c.POINTER(c.c_char),  # compBuf
         c.c_long,  # compBufSize
@@ -352,6 +357,33 @@ def LOAD_DLL(dll_path: str = ""):
         c.c_long,  # decoderMemorySize
         c.c_int,  # threadPhase
     )
+    __DLL_Decompress.restype = c.c_long
+    __DLL_Decompress.memsync = [  #! BUTTER - zugbruecke specific
+        dict(
+            value = [5],  # "path" to argument containing the value
+            length = tuple(),  # "path" to argument containing the length
+            type = c.c_int,  # type of argument (optional, default char/byte): sizeof(type) * length == bytes
+            custom = CheckCRC,  # custom datatype
+            func = "lambda: 1",
+        ),
+        dict(
+            value = [6],  # "path" to argument containing the value
+            length = tuple(),  # "path" to argument containing the length
+            type = c.c_int,  # type of argument (optional, default char/byte): sizeof(type) * length == bytes
+            custom = Verbosity,  # custom datatype
+            func = "lambda: 1",
+        ),
+        dict(
+            pointer = [0],  # "path" to argument containing the pointer
+            length = [1],  # "path" to argument containing the length
+            type = c.c_char,  # type of argument (optional, default char/byte): sizeof(type) * length == bytes
+        ),
+        dict(
+            pointer = [2],  # "path" to argument containing the pointer
+            length = [3],  # "path" to argument containing the length
+            type = c.c_char,  # type of argument (optional, default char/byte): sizeof(type) * length == bytes
+        ),
+    ]
 
     __DLL_GetCompressedBufferSizeNeeded = __DLL["OodleLZ_GetCompressedBufferSizeNeeded"]
     __DLL_GetCompressedBufferSizeNeeded.restype = c.c_long
