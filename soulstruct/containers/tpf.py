@@ -840,10 +840,17 @@ def batch_get_tpf_texture_png_data(
     Failed conversions will put `None` into list rather than PNG bytes.
     """
 
-    mp_args = [(tpf_texture, deswizzle_platform, fmt) for tpf_texture in tpf_textures]
+    # mp_args = [(tpf_texture, deswizzle_platform, fmt) for tpf_texture in tpf_textures]
 
-    with multiprocessing.Pool(processes=processes) as pool:
-        png_data = pool.starmap(_get_png_data, mp_args)  # blocks here until all done
+    # with multiprocessing.Pool(processes=processes) as pool:
+    #     png_data = pool.starmap(_get_png_data, mp_args)  # blocks here until all done
+
+    #! BUTTER HOTFIX
+    # multiprocessing results in overwriting of files, such that
+    # all cached textures are the same png
+    png_data = []
+    for i in tpf_textures:
+        png_data.append(_get_png_data(i,fmt=fmt))
 
     return png_data
 
@@ -865,9 +872,15 @@ def batch_get_tpf_texture_tga_data(
     Failed conversions will put `None` into list rather than TGA bytes.
     """
 
-    mp_args = [(tpf_texture, deswizzle_platform) for tpf_texture in tpf_textures]
+    # mp_args = [(tpf_texture,) for tpf_texture in tpf_textures]
 
-    with multiprocessing.Pool(processes=processes) as pool:
-        tga_data = pool.starmap(_get_tga_data, mp_args)  # blocks here until all done
+    # with multiprocessing.Pool(processes=processes) as pool:
+    #     tga_data = pool.starmap(_get_tga_data, mp_args)  # blocks here until all done
+
+    #! BUTTER HOTFIX
+    tga_data = []
+    for i in tpf_textures:
+        tga_data.append(_get_tga_data(i))
 
     return tga_data
+
