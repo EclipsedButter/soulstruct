@@ -71,5 +71,10 @@ def batch_texconv_to_dds(configs: list[TexconvConfig]) -> list[bytes]:
                 f"DDS format '{config.dds_format}' is not supported by `texconv`. (Try UNORM instead of TYPELESS.)"
             )
 
-    with multiprocessing.Pool() as pool:
-        return list(pool.starmap(texconv_to_dds, configs))
+    # with multiprocessing.Pool() as pool:
+    #     return list(pool.starmap(texconv_to_dds, configs))
+    #! BUTTER
+    out = []
+    for config in configs:
+        out.append(texconv_to_dds(config))
+    return out
