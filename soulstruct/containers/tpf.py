@@ -850,7 +850,7 @@ def batch_get_tpf_texture_png_data(
     # all cached textures are the same png
     png_data = []
     for i in tpf_textures:
-        png_data.append(_get_png_data(i,fmt=fmt))
+        png_data.append(_get_png_data(i,deswizzle_platform=deswizzle_platform,fmt=fmt))
 
     return png_data
 
@@ -872,7 +872,7 @@ def batch_get_tpf_texture_tga_data(
     Failed conversions will put `None` into list rather than TGA bytes.
     """
 
-    # mp_args = [(tpf_texture,) for tpf_texture in tpf_textures]
+    # mp_args = [(tpf_texture, deswizzle_platform) for tpf_texture in tpf_textures]
 
     # with multiprocessing.Pool(processes=processes) as pool:
     #     tga_data = pool.starmap(_get_tga_data, mp_args)  # blocks here until all done
@@ -880,7 +880,7 @@ def batch_get_tpf_texture_tga_data(
     #! BUTTER HOTFIX
     tga_data = []
     for i in tpf_textures:
-        tga_data.append(_get_tga_data(i))
+        tga_data.append(_get_tga_data(i,deswizzle_platform=deswizzle_platform))
 
     return tga_data
 
