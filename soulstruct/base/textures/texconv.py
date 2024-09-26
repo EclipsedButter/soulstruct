@@ -21,7 +21,7 @@ def texconv(*args):
     if not texconv_path.is_file():
         raise FileNotFoundError("Cannot find `texconv.exe` that should be bundled with Soulstruct in 'base/textures'.")
     return subprocess.run(
-        [texconv_path, *args],
+        ["texconv", *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
