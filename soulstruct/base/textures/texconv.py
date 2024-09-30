@@ -75,6 +75,10 @@ def batch_texconv_to_dds(configs: list[TexconvConfig]) -> list[bytes]:
     #     return list(pool.starmap(texconv_to_dds, configs))
     #! BUTTER
     out = []
-    for config in configs:
+    configsLen = len(configs)
+    for i in range(configsLen):
+        config = configs[i]
+        print(f"Converting textures...    ({i+1}/{configsLen})           ",end='\r')
         out.append(texconv_to_dds(config))
+    print("\ndone")
     return out
