@@ -849,9 +849,12 @@ def batch_get_tpf_texture_png_data(
     # multiprocessing results in overwriting of files, such that
     # all cached textures are the same png
     png_data = []
-    for i in tpf_textures:
-        png_data.append(_get_png_data(i,deswizzle_platform=deswizzle_platform,fmt=fmt))
-
+    texLen = len(tpf_textures)
+    for i in range(texLen):
+        tex = tpf_textures[i]
+        print(f"Appending texture {tex.stem:<20}...{f'({i+1}/{texLen})':>10}",end='\r')
+        png_data.append(_get_png_data(tex,deswizzle_platform=deswizzle_platform,fmt=fmt))
+    print("\ndone")
     return png_data
 
 
@@ -879,8 +882,11 @@ def batch_get_tpf_texture_tga_data(
 
     #! BUTTER HOTFIX
     tga_data = []
-    for i in tpf_textures:
-        tga_data.append(_get_tga_data(i,deswizzle_platform=deswizzle_platform))
-
+    texLen = len(tpf_textures)
+    for i in range(texLen):
+        tex = tpf_textures[i]
+        print(f"Appending texture {tex.stem:<20}...{f'({i+1}/{texLen})':>10}",end='\r')
+        tga_data.append(_get_tga_data(tex,deswizzle_platform=deswizzle_platform))
+    print("\ndone")
     return tga_data
 
