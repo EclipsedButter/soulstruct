@@ -155,7 +155,7 @@ class BinderEntry:
     data: bytes
     # Index that may be used by the game engine to access the packed data.
     entry_id: int | None = None
-    # Full internal 'path' (in most cases), encoded in UTF-16 or Shift-JIS with double backslashes.
+    # Full internal 'path' (in most cases), encoded in UTF-16 or Shift-JIS with double backslashes. #! BUTTER forward slashes, line 167
     path: str | None = None
     # Only one bit flag's purpose is currently known (compression). Default seems stable across games and very common.
     flags: int = 0x2
@@ -164,7 +164,7 @@ class BinderEntry:
     def from_header(cls, binder_reader: BinaryReader, entry_header: BinderEntryHeader) -> BinderEntry:
         with binder_reader.temp_offset(entry_header.data_offset):
             data = binder_reader.read(entry_header.compressed_size)
-        return cls(entry_id=entry_header.entry_id, path=entry_header.path, data=data, flags=entry_header.flags)
+        return cls(entry_id=entry_header.entry_id, path=entry_header.path.replace('\\','/'), data=data, flags=entry_header.flags)
 
     def get_header(self, binder_flags: BinderFlags) -> BinderEntryHeader:
         return BinderEntryHeader(
