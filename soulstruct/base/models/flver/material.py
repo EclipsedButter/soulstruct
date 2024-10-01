@@ -75,7 +75,7 @@ class Material(BaseMaterial[Texture]):
 
         material_struct = cls.STRUCT.from_bytes(reader)
         name = reader.unpack_string(offset=material_struct.pop("_name_offset"), encoding=encoding)
-        mat_def_path = reader.unpack_string(offset=material_struct.pop("_mat_def_path_offset"), encoding=encoding)
+        mat_def_path = reader.unpack_string(offset=material_struct.pop("_mat_def_path_offset"), encoding=encoding).replace('\\','/') #! BUTTER
         gx_offset = material_struct.pop("_gx_offset")
         if gx_offset <= 0:
             gx_item_list = []  # no `GXItem`s (older games)
