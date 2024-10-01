@@ -42,7 +42,7 @@ class Texture(BaseTexture):
         texture_struct = cls.STRUCT.from_bytes(reader)
         path = reader.unpack_string(offset=texture_struct.pop("_path_offset"), encoding=encoding)
         texture_type = reader.unpack_string(offset=texture_struct.pop("_texture_type_offset"), encoding=encoding)
-        texture = texture_struct.to_object(cls, path=path, texture_type=texture_type)
+        texture = texture_struct.to_object(cls, path=path.replace('\\','/'), texture_type=texture_type) #! BUTTER
         return texture
 
     def to_flver_writer(self, writer: BinaryWriter):
