@@ -2,6 +2,7 @@ from __future__ import annotations
 
 __all__ = [
     "MatDefError",
+    "MatDefSampler",
     "MatDef",
 ]
 
@@ -31,7 +32,7 @@ class MatDefError(SoulstructError):
 class MatDefSampler:
 
     name: str  # e.g. 'g_Diffuse'; real, game-specific name of sampler
-    alias: str  # e.g. 'ALBEDO_0'; used for Blender node names, etc., to improve porting
+    alias: str  # e.g. 'Main 0 Albedo'; used for Blender node names, etc., to improve porting
     uv_layer: IntEnum | None  # game-specific UV layer enum (could be `None` for non-textured samplers)
     sampler_group: int = 0  # given explicitly in Elden Ring; inferred in earlier games
     uv_scale: Vector2 | None = None  # added from sampler group in later games
@@ -73,7 +74,7 @@ class MatDef(abc.ABC):
     have pre-loaded for all known MATBINs into a bundled JSON with Meow's help.
 
     The other function of this class is to map each known sampler name in each game to a game-agnostic 'alias' like
-    `ALBEDO_0` (which appears as 'g_Diffuse' in DS1, 'g_DiffuseTexture' in BB, etc.). This makes it easier to port
+    `Main 0 Albedo` (which appears as 'g_Diffuse' in DS1, 'g_DiffuseTexture' in BB, etc.). This makes it easier to port
     FLVER materials across games and determines how they are held in my Blender add-on.
     """
 
@@ -100,10 +101,8 @@ class MatDef(abc.ABC):
     SAMPLER_ALIASES: tp.ClassVar[dict[str, str]]
     # Maps aliases back to game-specific sampler names.
     SAMPLER_GAME_NAMES: tp.ClassVar[dict[str, str]]
-    # Detects [T] style tags in MTD names.
+    # Uses Regex to detect various keyed features in MTD names (which may be in brackets [] or just part of the name).
     NAME_TAG_RE: tp.ClassVar[dict[str, re.Pattern]]
-    # Detects '_Label' style suffixes in MTD names.
-    NAME_SUFFIX_RE: tp.ClassVar[dict[str, re.Pattern]]
     # True if this game uses `MATBIN` material definition files rather than old `MTD`.
     USES_MATBIN: tp.ClassVar[bool] = False
 
@@ -203,7 +202,7 @@ class MatDef(abc.ABC):
             matdef.shader_category = "NormalToAlpha"
             matdef.add_sampler(alias="Main 0 Albedo", uv_layer=cls.UVLayer.UVTexture0)
         elif (
-            matdef.has_name_tag("wet")
+            matdef.has_name_tag("Water")
             or mtd_stem in cls.KNOWN_SHADER_MTD_STEMS.get("Water", {})
         ):
             # Water shaders with normals only.
@@ -218,7 +217,7 @@ class MatDef(abc.ABC):
                 ("Normal", "Main 0 Normal"),
                 ("Displacement", "Displacement"),
             ):
-                if texture_tag in cls.NAME_TAG_RE and matdef.has_name_tag(texture_tag):
+                if matdef.has_name_tag(texture_tag):
                     matdef.add_sampler(alias=alias, uv_layer=cls.UVLayer.UVTexture0)
 
         if not matdef.samplers:
@@ -237,8 +236,8 @@ class MatDef(abc.ABC):
         if matdef.has_name_tag("Lightmap"):
             matdef.add_sampler(alias="Lightmap", uv_layer=cls.UVLayer.UVLightmap)
 
-        matdef.alpha = matdef.has_name_suffix("Alpha")
-        matdef.edge = matdef.has_name_suffix("Edge")
+        matdef.alpha = matdef.has_name_tag("Alpha")
+        matdef.edge = matdef.has_name_tag("Edge")
 
         return matdef
 
@@ -302,26 +301,16 @@ class MatDef(abc.ABC):
 
     # endregion
 
-    def has_name_tag(self, tag: str) -> bool:
+    def has_name_tag(self, tag: str, ignore_missing=True) -> bool:
         if not self.NAME_TAG_RE:
             raise ValueError(f"Cannot check MATDEF name for tag '{tag}' without `NAME_TAG_RE` defined in subclass.")
         if tag not in self.NAME_TAG_RE:
+            if ignore_missing:
+                return False
             raise KeyError(f"Tag '{tag}' not found in `NAME_TAG_RE` for this shader subclass.")
         if not self.name:
             raise ValueError(f"Cannot check MATDEF name for tag '{tag}' without `name` assigned to `MATDEF`.")
         return self.NAME_TAG_RE[tag].match(self.name) is not None
-
-    def has_name_suffix(self, suffix: str) -> bool:
-        if not self.NAME_SUFFIX_RE:
-            raise ValueError(
-                f"Cannot check MATDEF name for suffix '{suffix}' without `NAME_SUFFIX_RE` defined in subclass.")
-        if suffix not in self.NAME_SUFFIX_RE:
-            raise KeyError(f"Tag '{suffix}' not found in `NAME_SUFFIX_RE` for this shader subclass.")
-        if not self.name:
-            raise ValueError(
-                f"Cannot check MATDEF name for suffix '{suffix}' without MATDEF name assigned to `MATDEF`."
-            )
-        return self.NAME_SUFFIX_RE[suffix].match(self.name) is not None
 
     def add_sampler(
         self,
