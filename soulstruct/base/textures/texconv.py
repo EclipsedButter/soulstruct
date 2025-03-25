@@ -80,6 +80,9 @@ def batch_texconv_to_dds(configs: list[TexconvConfig]) -> list[bytes]:
             raise TexconvError(
                 f"DDS format '{config.dds_format}' is not supported by `texconv`. (Try UNORM instead of TYPELESS.)"
             )
+        
+    with multiprocessing.Pool() as pool:
+        return list(pool.starmap(texconv_to_dds, configs))
     # out = []
     # configsLen = len(configs)
     # for i in range(configsLen):
@@ -134,11 +137,11 @@ def batch_texconv_to_dds(configs: list[TexconvConfig]) -> list[bytes]:
     # use wine cmd to do convert sequentially
     
     
-    out = []
-    configsLen = len(configs)
-    for i in range(configsLen):
-        config = configs[i]
-        print(f"Converting textures...    ({i+1}/{configsLen})           ",end='\r')
-        out.append(texconv_to_dds(config))
-    print("\ndone")
-    return out
+    # out = []
+    # configsLen = len(configs)
+    # for i in range(configsLen):
+    #     config = configs[i]
+    #     print(f"Converting textures...    ({i+1}/{configsLen})           ",end='\r')
+    #     out.append(texconv_to_dds(config))
+    # print("\ndone")
+    # return out
