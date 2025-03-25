@@ -12,8 +12,9 @@ __all__ = [
     "MSBOtherModel",
 ]
 
+import abc
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from soulstruct.base.maps.msb.msb_entry import *
 from soulstruct.base.maps.msb.models import BaseMSBModel
@@ -22,14 +23,13 @@ from soulstruct.utilities.binary import *
 from .enums import MSBModelSubtype
 
 
-@dataclass(slots=True)
 class ModelHeaderStruct(MSBHeaderStruct):
     name_offset: long
     _subtype_int: int
     subtype_index: int
     sib_path_offset: long
     instance_count: int
-    _pad1: bytes = field(init=False, **BinaryPad(12))
+    _pad1: bytes = binary_pad(12, init=False)
 
     @classmethod
     def reader_to_entry_kwargs(
@@ -82,7 +82,7 @@ class ModelHeaderStruct(MSBHeaderStruct):
 
 
 @dataclass(slots=True, eq=False, repr=False)
-class MSBModel(BaseMSBModel):
+class MSBModel(BaseMSBModel, abc.ABC):
     HEADER_STRUCT = ModelHeaderStruct
     NAME_ENCODING = "utf-16-le"
 
@@ -155,7 +155,7 @@ class MSBCollisionModel(MSBModel):
 class MSBNavmeshModel(MSBModel):
     SUBTYPE_ENUM: tp.ClassVar = MSBModelSubtype.NavmeshModel
 
-    SIB_PATH_TEMPLATE: tp.ClassVar[str] = "N:\\SPRJ\\data\\Model\\map\\{map_stem}\\navimesh\\{name}.SIB"
+    SIB_PATH_TEMPLATE: tp.ClassVar[str] = "N:\\SPRJ\\data\\Model\\map\\{map_stem}\\navimesh\\{name}.sib"
 
     def set_auto_sib_path(self, map_stem: str):
         self.sib_path = self.SIB_PATH_TEMPLATE.format(map_stem=map_stem, name=self.name)

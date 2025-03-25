@@ -3,17 +3,16 @@ from __future__ import annotations
 __all__ = ["MSGBND"]
 
 import typing as tp
-from dataclasses import dataclass
 
 from soulstruct.containers import Binder, BinderVersion, BinderFlags, BinderVersion4Info
 from soulstruct.dcx import DCXType
 from soulstruct.games import DARK_SOULS_DSR
 
 
-@dataclass(slots=True)
 class MSGBND(Binder):
     """Subclassed by games to set default binder/entry path."""
 
+    IS_SPLIT_BXF: tp.ClassVar[bool] = False
     DEFAULT_ENTRY_ROOT: tp.ClassVar[str] = f"{DARK_SOULS_DSR.interroot_prefix}\\Msg\\Data_ENGLISH"
 
     dcx_type: DCXType = DARK_SOULS_DSR.default_dcx_type

@@ -123,7 +123,7 @@ class MatDef(_BaseMatDef):
         PACKAGE_PATH("eldenring/models/resources/er_shader_sampler_groups.json")
     )
 
-    NAME_TAG_RE: tp.ClassVar[str, re.Pattern] = {
+    NAME_TAG_RE: tp.ClassVar[dict[str, re.Pattern]] = {
         "Albedo": re.compile(r".*\[.*A.*\].*"),
         "Specular": re.compile(r".*\[.*M.*\].*"),
         "Shininess": re.compile(r".*\[.*S.*\].*"),  # rarely used
@@ -194,7 +194,7 @@ class MatDef(_BaseMatDef):
     """
 
     @classmethod
-    def get_shader_category(cls, shader_stem: str) -> str:
+    def _get_shader_category(cls, shader_stem: str) -> str:
         """Not supremely useful. We get everything up to first closing square bracket, e.g. 'M[Water]' or 'C[c2000]'."""
         if "]" not in shader_stem:
             return shader_stem
@@ -445,7 +445,7 @@ class MatDef(_BaseMatDef):
 
         return VertexArrayLayout(data_types)
 
-    def get_character_layout(self) -> VertexArrayLayout:
+    def get_non_map_piece_layout(self) -> VertexArrayLayout:
         """Get a standard vertex array layout for character (and probably object) materials in ER."""
 
         data_types = [

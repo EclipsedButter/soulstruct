@@ -88,16 +88,14 @@ TPF_TEXTURE_FORMAT_TO_DXGI_FORMAT = {
 @dataclass(slots=True)
 class TPFTexture:
 
-    @dataclass(slots=True)
     class STRUCT(BinaryStruct, abc.ABC):
         data_offset: uint
         data_size: int
         format: byte
-        texture_type: TextureType = field(**Binary(byte))
+        texture_type: TextureType = binary(byte)
         mipmap_count: byte
         texture_flags: byte
 
-    @dataclass(slots=True)
     class FLOAT_STRUCT(BinaryStruct):
         """Unknown optional data for some textures."""
         unk0: int
@@ -252,7 +250,7 @@ class TPFTexture:
 
         if self.unknown_float_struct is not None:
             unk0, floats = self.unknown_float_struct
-            self.FLOAT_STRUCT(unk0, len(floats) * 4).to_writer(writer)
+            self.FLOAT_STRUCT(unk0=unk0, size=len(floats) * 4).to_writer(writer)
             writer.pack(f"{len(floats) * 4}f", *floats)
 
         if self.platform is not None and self.platform != platform:
@@ -264,7 +262,7 @@ class TPFTexture:
     def pack_stem(self, writer: BinaryWriter, encoding_type: int):
         writer.fill_with_position("stem_offset", obj=self)
         if encoding_type == 1:  # UTF-16
-            stem = self.stem.encode(encoding=writer.default_byte_order.get_utf_16_encoding()) + b"\0\0"
+            stem = self.stem.encode(encoding=writer.byte_order.get_utf_16_encoding()) + b"\0\0"
         elif encoding_type in {0, 2}:  # shift-jis
             stem = self.stem.encode(encoding="shift-jis") + b"\0"
         else:
@@ -517,8 +515,7 @@ class TPFTexture:
             reserved_2=0,
         )
 
-        # TODO: Suspicious? Not big-endian on old consoles?
-        dds_header.byte_order = ByteOrder.LittleEndian
+        # TODO: Any big-endian byte order on old consoles?
 
         if fourcc == b"DX10":
             dx10_header = DX10Header.get_default(self.console_info.dxgi_format)
@@ -566,18 +563,16 @@ class TPFTexture:
         )
 
 
-@dataclass(slots=True)
 class TPFStruct(BinaryStruct):
-    signature: bytes = field(**BinaryString(4, asserted=b"TPF\0"))
+    signature: bytes = binary_string(4, asserted=b"TPF\0")
     _data_size: int
     file_count: int
-    platform: TPFPlatform = field(**Binary(byte))
+    platform: TPFPlatform = binary(byte)
     tpf_flags: byte = field(**(Binary(asserted=[0, 1, 2, 3])))
-    encoding_type: byte = field(**Binary(asserted=[0, 1, 2]))  # 2 == UTF_16, 0/1 == shift_jis_2004
-    _pad1: bytes = field(**BinaryPad(1))
+    encoding_type: byte = binary(asserted=[0, 1, 2])  # 2 == UTF-16, 0/1 == shift_jis_2004
+    _pad1: bytes = binary_pad(1)
 
 
-@dataclass(slots=True)
 class TPF(GameFile):
 
     textures: list[TPFTexture] = field(default_factory=list)
@@ -588,7 +583,7 @@ class TPF(GameFile):
     @classmethod
     def from_reader(cls, reader: BinaryReader) -> TPF:
         platform = TPFPlatform(reader["B", 0xC])
-        reader.default_byte_order = ByteOrder.big_endian_bool(platform in {TPFPlatform.Xbox360, TPFPlatform.PS3})
+        reader.byte_order = ByteOrder.big_endian_bool(platform in {TPFPlatform.Xbox360, TPFPlatform.PS3})
         tpf_struct = TPFStruct.from_bytes(reader)
 
         encoding = reader.get_utf_16_encoding() if tpf_struct.encoding_type == 1 else "shift_jis_2004"
@@ -669,13 +664,38 @@ class TPF(GameFile):
         for texture in self.textures:
             texture.pack_stem(writer, self.encoding_type)
 
+        if self.platform == TPFPlatform.PS3:
+            # NOTE: SoulsFormats aligns to 0x100 here, but in Demon's Souls TPFs, they sometimes align to 0x80 provided
+            # that the emergent pad size is large enough (possibly at least 0x40, which is the smallest I've seen so far
+            # in c7150). To better emulate vanilla files, I explicitly pad by 0x40, then align to 0x80. I'd have to look
+            # at every vanilla file to confirm the minimum pad.
+            writer.pad(0x40)
+            writer.pad_align(0x80)
+
         data_start = writer.position
+        data_size = 0
+
         for texture in self.textures:
             # TKGP notes: padding varies wildly across games, so don't worry about it too much.
-            if len(texture.data) > 0:
-                writer.pad_align(4)
+            # However, from Demon's Souls TPFs on PS3, it's clear that each texture aligns to 0x80 (possibly with the
+            # same minimum pad as above, but ignoring that for now).
+            if self.platform == TPFPlatform.PS3:
+                writer.pad_align(0x80)
+            elif len(texture.data) > 0:
+                writer.pad_align(4)  # default alignment
+            texture_pos = writer.position
             texture.pack_data(writer)
-        writer.fill("_data_size", writer.position - data_start, obj=self)
+            texture_size = writer.position - texture_pos
+            data_size += texture_size
+
+        # Demon's Souls (PS3) also aligns to 0x80 after the final texture (not included in data size). The total data
+        # size in the header also excludes all the padding. (Possibly true for later TPFs too.)
+        if self.platform == TPFPlatform.PS3:
+            writer.pad_align(0x80)
+            writer.fill("_data_size", data_size, obj=self)
+        else:
+            writer.fill("_data_size", writer.position - data_start, obj=self)
+
         writer.fill("file_count", len(self.textures), obj=self)
         return writer
 

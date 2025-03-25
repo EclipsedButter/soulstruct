@@ -5,7 +5,7 @@ __all__ = ["AIScriptDirectory"]
 import abc
 import logging
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 
 from soulstruct.base.game_file_directory import GameFileMapDirectory
@@ -14,8 +14,7 @@ from .luabnd import LuaBND
 _LOGGER = logging.getLogger("soulstruct")
 
 
-@dataclass(slots=True)
-class AIScriptDirectory(GameFileMapDirectory, abc.ABC):
+class AIScriptDirectory(GameFileMapDirectory[LuaBND], abc.ABC):
     """Unpack LuaBND scripts in a directory (usually `script`) into one single modifiable structure.
 
     Note that the vanilla game uses pre-compiled Lua bytecode for a minor efficiency upgrade, but uncompiled Lua

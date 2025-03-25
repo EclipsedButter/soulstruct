@@ -2,16 +2,12 @@ from __future__ import annotations
 
 __all__ = ["POSTURE_CONTROL_PARAM_WEP_RIGHT_ST"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
 from soulstruct.utilities.binary import *
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class POSTURE_CONTROL_PARAM_WEP_RIGHT_ST(ParamRow):
     A000rightArmFB: int = ParamField(
         short, "a000_rightArmFB", default=0,

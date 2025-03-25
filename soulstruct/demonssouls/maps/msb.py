@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-__all__ = ["MSB", "MSBSubtypeInfo", "MSBSupertype"]
+__all__ = ["MSB", "MSBSubtypeInfo", "MSBSupertype", "BitSet128"]
 
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
 
 from soulstruct.darksouls1ptde.game_types.map_types import *
 from soulstruct.dcx import DCXType
 from soulstruct.base.maps.msb import MSB as _BaseMSB, MSBEntryList, MSBEntry, BaseMSBSubtype
-from soulstruct.base.maps.msb.utils import MSBSubtypeInfo
+from soulstruct.base.maps.msb.utils import MSBSubtypeInfo, BitSet128
 from soulstruct.utilities.binary import *
 from soulstruct.utilities.maths import Vector3
 from soulstruct.utilities.misc import IDList
@@ -23,9 +23,8 @@ from .parts import *
 from .trees import *
 
 
-@dataclass(slots=True)
 class MSBEntrySuperlistHeader(BinaryStruct):
-    _pad1: bytes = field(init=False, **BinaryPad(4))
+    _pad1: bytes = binary_pad(4, init=False)
     name_offset: int
     entry_offset_count: int
 
@@ -79,8 +78,7 @@ def empty(subtype_enum: BaseMSBSubtype) -> tp.Callable[[], MSBEntryList]:
     return lambda: MSBEntryList((), supertype=supertype, entry_class=subtype_info.entry_class)
 
 
-@dataclass(slots=True, kw_only=True)
-class MSB(_BaseMSB):
+class MSB(_BaseMSB[MSBModel, MSBEvent, MSBRegion, MSBPart]):
     IS_BIG_ENDIAN: tp.ClassVar[bool] = True  # for PS3
     SUPERTYPE_LIST_HEADER: tp.ClassVar[type[BinaryStruct]] = MSBEntrySuperlistHeader
     MSB_SUPERTYPE_ENUM: tp.ClassVar[type[StrEnum]] = MSBSupertype
@@ -91,6 +89,13 @@ class MSB(_BaseMSB):
         MSBSupertype.PARTS: MSBPart,
         MSBSupertype.TREES: MSBTree,
     }
+    MSB_SUPERTYPE_SUBTYPE_ENUMS: tp.ClassVar[dict[str, type[BaseMSBSubtype]]] = {
+        MSBSupertype.MODELS: MSBModelSubtype,
+        MSBSupertype.EVENTS: MSBEventSubtype,
+        MSBSupertype.REGIONS: MSBRegionSubtype,
+        MSBSupertype.PARTS: MSBPartSubtype,
+        MSBSupertype.TREES: MSBTreeSubtype,
+    }
     MSB_ENTRY_SUBTYPES: tp.ClassVar[dict[str, dict[BaseMSBSubtype, MSBSubtypeInfo]]] = MSB_ENTRY_SUBTYPES
     MSB_ENTRY_SUBTYPE_OFFSETS: tp.ClassVar[dict[str, int]] = {
         MSBSupertype.MODELS: 4,
@@ -99,6 +104,10 @@ class MSB(_BaseMSB):
         MSBSupertype.PARTS: 4,
         MSBSupertype.TREES: -1,  # no subtype index
     }
+    MODEL_CLASS: tp.ClassVar[type[MSBModel]] = MSBModel
+    EVENT_CLASS: tp.ClassVar[type[MSBEvent]] = MSBEvent
+    REGION_CLASS: tp.ClassVar[type[MSBRegion]] = MSBRegion
+    PART_CLASS: tp.ClassVar[type[MSBPart]] = MSBPart
     ENTITY_GAME_TYPES: tp.ClassVar[dict[str, MapEntity]] = {
         "map_pieces": MapPiece,
         "objects": Object,
@@ -111,9 +120,7 @@ class MSB(_BaseMSB):
         "messages": MessageEvent,
         "spawn_points": SpawnPointEvent,
         "navigation": NavigationEvent,
-        # Shape-based region sublist properties:
-        "region_points": RegionPoint,
-        "region_volumes": RegionVolume,
+        "regions": Region,
     }
 
     # Callables with `map_base_id` to get prescribed DS1 entity ID range for each MSB entity type, as class kwargs.
@@ -121,8 +128,7 @@ class MSB(_BaseMSB):
     # Note that these are GUIDELINES for vanilla usage, but are not always followed. A few maps also have clashing IDs
     # over different supertypes in vanilla DS1 (often between `NavigationEvent`s and regions).
     ID_RANGES = {
-        RegionVolume: lambda map_base_id: dict(first_value=2000 + map_base_id, last_value=2499 + map_base_id),
-        RegionPoint: lambda map_base_id: dict(first_value=2500 + map_base_id, last_value=2899 + map_base_id),
+        Region: lambda map_base_id: dict(first_value=2000 + map_base_id, last_value=2899 + map_base_id),
 
         MapPiece: lambda map_base_id: dict(first_value=3000 + map_base_id, last_value=3199 + map_base_id),
         Collision: lambda map_base_id: dict(first_value=3200 + map_base_id, last_value=3399 + map_base_id),
@@ -222,7 +228,7 @@ class MSB(_BaseMSB):
         return MSBEntryList(
             [region for region in self.regions if region.shape_type == RegionShapeType.Point],
             supertype=MSBSupertype.REGIONS,
-            entry_class=None,
+            entry_class=MSBRegion,
         )
 
     @property
@@ -231,7 +237,7 @@ class MSB(_BaseMSB):
         return MSBEntryList(
             [region for region in self.regions if region.shape_type in volume_types],
             supertype=MSBSupertype.REGIONS,
-            entry_class=None,
+            entry_class=MSBRegion,
         )
 
     def pack_supertype_name(self, writer: BinaryWriter, supertype_name: str):
@@ -434,7 +440,7 @@ class MSB(_BaseMSB):
         self,
         translate: Vector3,
         rotate: Vector3,
-        point_entity_enum: RegionPoint = None,
+        point_entity_enum: Region = None,
         **vfx_event_kwargs,
     ) -> MSBVFXEvent:
         if "attached_region" in vfx_event_kwargs:

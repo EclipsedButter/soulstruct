@@ -10,8 +10,9 @@ import typing as tp
 from dataclasses import dataclass
 from enum import IntEnum
 
+from soulstruct.base.models import MTD
 from soulstruct.base.models.shaders import MatDef as _BaseMatDef
-from soulstruct.base.models.flver0.vertex_array_layout import *
+from soulstruct.base.models.flver.vertex_array_layout import *
 from soulstruct.utilities.binary import ByteOrder
 
 _LOGGER = logging.getLogger("soulstruct")
@@ -26,9 +27,8 @@ class MatDef(_BaseMatDef):
         UVTexture0 = 0
         UVTexture1 = 1
         UVLightmap = 2
-        UVWindDataIvy = 3  # used by Ivy (only two unique values)
-        UVWindDataMain = 4  # used by both Foliage and Ivy
-        UVWindDataEmpty = 5  # used by both Foliage and Ivy, always seems to be zeroed
+        UVData_WindA = 3  # used mostly by Foliage and occasionally by Ivy
+        UVData_WindB = 4  # used mostly by Ivy and always zero for Foliage
 
     SAMPLER_ALIASES: tp.ClassVar[dict[str, str]] = {
         "g_Diffuse": "Main 0 Albedo",
@@ -45,7 +45,7 @@ class MatDef(_BaseMatDef):
     SAMPLER_GAME_NAMES: tp.ClassVar[dict[str, str]] = {v: k for k, v in SAMPLER_ALIASES.items()}
 
     # Class regex patterns for MTD name parsing.
-    NAME_TAG_RE: tp.ClassVar[str, re.Pattern] = {
+    NAME_TAG_RE: tp.ClassVar[dict[str, re.Pattern]] = {
         "Albedo": re.compile(r".*\[.*D.*\].*"),
         "Specular": re.compile(r".*\[.*S.*\].*"),
         # No "Shininess" samplers in DeS.
@@ -62,8 +62,10 @@ class MatDef(_BaseMatDef):
     }
 
     EXTRA_SHADER_UV_LAYERS: tp.ClassVar[dict[str, list[UVLayer]]] = {
-        "Foliage": [UVLayer.UVWindDataMain, UVLayer.UVWindDataEmpty],
-        "Ivy": [UVLayer.UVWindDataIvy, UVLayer.UVWindDataMain, UVLayer.UVWindDataEmpty],
+        # NOTE: These are used differently by Foliage and Ivy. Foliage uses mostly A, and Ivy mostly B (both of which
+        # will appear to stretch the texture from one edge to the opposite).
+        "Foliage": [UVLayer.UVData_WindA, UVLayer.UVData_WindB],
+        "Ivy": [UVLayer.UVData_WindA, UVLayer.UVData_WindB],
     }
 
     KNOWN_SHADER_MTD_STEMS: tp.ClassVar[dict[str, list[str | re.Pattern]]] = {
@@ -124,13 +126,37 @@ class MatDef(_BaseMatDef):
         "A19_Snow[L]",  # FRPG_Snow_Lit
     }
 
+    # Some older materials have a second albedo texture ('g_Diffuse_2') that still uses UV layer 0.
+    HAS_DUPLICATE_ALBEDO_STEMS: tp.ClassVar[set[str]] = {
+        "Cs_ShadowMan_skin",
+        "Cs_Ghost_Param_Wander",
+        "Ps_Wander_Ghost",
+    }
+
     # TODO: Some shaders simply don't use the always-empty 'g_DetailBumpmap', but I can find no reliable way to detect
     #  this from their MTD names alone. I may have to guess that they do unless the MTD file is provided.
 
     @classmethod
-    def get_shader_category(cls, shader_stem: str) -> str:
+    def _get_shader_category(cls, shader_stem: str) -> str:
         """Parse stem as 'FRPG_{category}_*' and return the category."""
         return shader_stem.removeprefix("FRPG_").split("_")[0]
+
+    @classmethod
+    def from_mtd(cls, mtd: MTD):
+        matdef = super(MatDef, cls).from_mtd(mtd)
+
+        # Special known cases of a reused albedo UV layer, which we redirect to the first albedo UV.
+        if matdef.stem in cls.HAS_DUPLICATE_ALBEDO_STEMS:
+            main_0_sampler = matdef.get_sampler_with_alias("Main 0 Albedo")
+            main_1_sampler = matdef.get_sampler_with_alias("Main 1 Albedo")
+            if main_1_sampler is None:
+                _LOGGER.warning(
+                    f"MatDef '{matdef.name}' does not have expected 'Main 1 Albedo' sampler."
+                )
+            else:
+                main_1_sampler.uv_layer = main_0_sampler.uv_layer
+
+        return matdef
 
     @classmethod
     def from_mtd_name(cls, mtd_name: str):
@@ -150,27 +176,21 @@ class MatDef(_BaseMatDef):
         data_types = [  # always present
             VertexPosition(VertexDataFormatEnum.Float3, 0),
             VertexBoneIndices(VertexDataFormatEnum.FourBytesD, 0),
-            VertexNormal(VertexDataFormatEnum.FourBytesC, 0),
+            VertexNormal(VertexDataFormatEnum.FourBytesA, 0),
             # Tangent/Bitangent will be inserted here if needed.
-            VertexColor(VertexDataFormatEnum.FourBytesC, 0),
+            VertexColor(VertexDataFormatEnum.FourBytesA, 0),
             # UV/UVPair will be inserted here if needed.
         ]
 
-        texture_group_count = 0
-        if self.get_sampler_with_alias("Main 0 Albedo"):
-            texture_group_count += 1
-        if self.get_sampler_with_alias("Main 1 Albedo"):
-            texture_group_count += 1
-
         if self.get_sampler_with_alias("Main 0 Normal"):
             # Uses tangent vertex data.
-            data_types.insert(3, VertexTangent(VertexDataFormatEnum.FourBytesC, 0))
+            data_types.insert(3, VertexTangent(VertexDataFormatEnum.FourBytesA, 0))
             if self.get_sampler_with_alias("Main 1 Normal"):
                 # Uses bitangent vertex data for second texture group normal.
-                data_types.insert(4, VertexBitangent(VertexDataFormatEnum.FourBytesC, 0))
-        elif self.get_sampler_with_alias("Main 1 Albedo"):
+                data_types.insert(4, VertexBitangent(VertexDataFormatEnum.FourBytesA, 0))
+        elif self.get_sampler_with_alias("Main 1 Normal"):
             # Uses bitangent only. NOTE: I highly doubt any game shaders do this.
-            data_types.insert(3, VertexBitangent(VertexDataFormatEnum.FourBytesC, 0))
+            data_types.insert(3, VertexBitangent(VertexDataFormatEnum.FourBytesA, 0))
 
         uv_member_index = 0
         uv_count = len(self.get_used_uv_layers())
@@ -191,20 +211,21 @@ class MatDef(_BaseMatDef):
 
         return VertexArrayLayout(data_types, byte_order=ByteOrder.BigEndian)
 
-    def get_character_layout(self) -> VertexArrayLayout:
+    def get_non_map_piece_layout(self) -> VertexArrayLayout:
         """Get a standard vertex array layout for character (and probably object) materials in DeS."""
         data_types = [
             VertexPosition(VertexDataFormatEnum.Float3, 0),
             VertexBoneIndices(VertexDataFormatEnum.FourBytesD, 0),
             VertexBoneWeights(VertexDataFormatEnum.FourShortsToFloats, 0),
-            VertexNormal(VertexDataFormatEnum.FourBytesC, 0),
-            VertexTangent(VertexDataFormatEnum.FourBytesC, 0),
-            VertexColor(VertexDataFormatEnum.FourBytesC, 0),
+            VertexNormal(VertexDataFormatEnum.FourBytesA, 0),
+            VertexTangent(VertexDataFormatEnum.FourBytesA, 0),
+            VertexColor(VertexDataFormatEnum.FourBytesA, 0),
         ]
 
         uv_count = len(self.get_used_uv_layers())
         if uv_count == 2:  # has Bitangent and UVPair
-            data_types.insert(5, VertexBitangent(VertexDataFormatEnum.FourBytesC, 0))
+            # NOTE: Haven't actually seen this in DeS yet.
+            data_types.insert(5, VertexBitangent(VertexDataFormatEnum.FourBytesA, 0))
             data_types.append(VertexUV(VertexDataFormatEnum.UVPair, 0))
         elif uv_count == 1:  # one UV
             data_types.append(VertexUV(VertexDataFormatEnum.UV, 0))

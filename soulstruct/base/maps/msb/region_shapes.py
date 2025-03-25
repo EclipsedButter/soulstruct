@@ -40,11 +40,18 @@ class RegionShapeType(IntEnum):
     def get_volume_types(cls) -> set[RegionShapeType]:
         return {cls.Sphere, cls.Cylinder, cls.Box}
 
+    @classmethod
+    def get_2d_types(cls) -> set[RegionShapeType]:
+        """I have never seen these used even once in any FromSoftware game."""
+        return {cls.Circle, cls.Rect}
+
 
 @dataclass(slots=True)
 class RegionShape(abc.ABC):
     """Shape structure for any `MSBRegion` entry."""
     SHAPE_TYPE: tp.ClassVar[RegionShapeType]
+    SHAPE_FIELDS: tp.ClassVar[tuple[str]]
+    SHAPE_DIMS: tp.ClassVar[str]  # up to three characters corresponding to internal 'XYZ' dimensions
 
     @classmethod
     @abc.abstractmethod
@@ -75,6 +82,14 @@ class RegionShape(abc.ABC):
             **{f.name: getattr(self, f.name) for f in fields(self)},
         }
 
+    @abc.abstractmethod
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        """Get three dimensions for porting to other shape types."""
+
+    @abc.abstractmethod
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        """Set up to three dimensions from other shape types."""
+
 
 @dataclass(slots=True)
 class PointShape(RegionShape):
@@ -82,6 +97,8 @@ class PointShape(RegionShape):
     way the player will be facing when they spawn at or teleport to this point)."""
 
     SHAPE_TYPE = RegionShapeType.Point
+    SHAPE_FIELDS = ()
+    SHAPE_DIMS = ""
 
     @classmethod
     def from_msb_reader(cls, reader: BinaryReader) -> tp.Self:
@@ -92,12 +109,20 @@ class PointShape(RegionShape):
         """No data in this shape."""
         pass
 
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return 1.0, 1.0, 1.0
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        pass
+
 
 @dataclass(slots=True)
 class CircleShape(RegionShape):
     """Almost never used (no volume)."""
 
     SHAPE_TYPE = RegionShapeType.Circle
+    SHAPE_FIELDS = ("radius",)
+    SHAPE_DIMS = "R"
 
     radius: float = 1.0
 
@@ -108,12 +133,28 @@ class CircleShape(RegionShape):
 
     def to_msb_writer(self, writer: BinaryWriter):
         writer.pack("f", self.radius)
+
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return self.radius, self.radius, self.radius
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        self.radius = dimensions[0]
+
+    @property
+    def R(self):
+        return self.radius
+
+    @R.setter
+    def R(self, value):
+        self.radius = value
 
 
 @dataclass(slots=True)
 class SphereShape(RegionShape):
 
     SHAPE_TYPE = RegionShapeType.Sphere
+    SHAPE_FIELDS = ("radius",)
+    SHAPE_DIMS = "R"
 
     radius: float = 1.0
 
@@ -125,11 +166,27 @@ class SphereShape(RegionShape):
     def to_msb_writer(self, writer: BinaryWriter):
         writer.pack("f", self.radius)
 
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return self.radius, self.radius, self.radius
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        self.radius = dimensions[0]
+
+    @property
+    def R(self):
+        return self.radius
+
+    @R.setter
+    def R(self, value):
+        self.radius = value
+
 
 @dataclass(slots=True)
 class CylinderShape(RegionShape):
 
     SHAPE_TYPE = RegionShapeType.Cylinder
+    SHAPE_FIELDS = ("radius", "height")
+    SHAPE_DIMS = "RH"
 
     radius: float = 1.0
     height: float = 1.0
@@ -144,12 +201,36 @@ class CylinderShape(RegionShape):
         writer.pack("f", self.radius)
         writer.pack("f", self.height)
 
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return self.radius, self.height, self.radius
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        self.radius, self.height = dimensions[0], dimensions[1]
+
+    @property
+    def R(self):
+        return self.radius
+
+    @R.setter
+    def R(self, value):
+        self.radius = value
+
+    @property
+    def H(self):
+        return self.height
+
+    @H.setter
+    def H(self, value):
+        self.height = value
+
 
 @dataclass(slots=True)
 class RectShape(RegionShape):
     """Almost never used (no volume)."""
 
     SHAPE_TYPE = RegionShapeType.Rect
+    SHAPE_FIELDS = ("width", "depth")
+    SHAPE_DIMS = "W D"
 
     width: float = 1.0
     depth: float = 1.0
@@ -164,11 +245,35 @@ class RectShape(RegionShape):
         writer.pack("f", self.width)
         writer.pack("f", self.depth)
 
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return self.width, self.width, self.depth
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        self.width, self.depth = dimensions[0], dimensions[2]
+
+    @property
+    def W(self):
+        return self.width
+
+    @W.setter
+    def W(self, value):
+        self.width = value
+
+    @property
+    def D(self):
+        return self.depth
+
+    @D.setter
+    def D(self, value):
+        self.depth = value
+
 
 @dataclass(slots=True)
 class BoxShape(RegionShape):
 
     SHAPE_TYPE = RegionShapeType.Box
+    SHAPE_FIELDS = ("width", "depth", "height")
+    SHAPE_DIMS = "WHD"
 
     width: float = 1.0  # game X
     depth: float = 1.0  # game Z
@@ -188,11 +293,43 @@ class BoxShape(RegionShape):
         writer.pack("f", self.depth)
         writer.pack("f", self.height)
 
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        return self.width, self.height, self.depth
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        self.width, self.height, self.depth = dimensions[0], dimensions[1], dimensions[2]
+
+    @property
+    def W(self):
+        return self.width
+
+    @W.setter
+    def W(self, value: float):
+        self.width = value
+
+    @property
+    def H(self):
+        return self.height
+
+    @H.setter
+    def H(self, value: float):
+        self.height = value
+
+    @property
+    def D(self):
+        return self.depth
+
+    @D.setter
+    def D(self, value: float):
+        self.depth = value
+
 
 @dataclass(slots=True)
 class CompositeShape(RegionShape):
 
     SHAPE_TYPE = RegionShapeType.Composite
+    SHAPE_FIELDS = ()
+    SHAPE_DIMS = ""
 
     region_indices: list[int] = field(default_factory=lambda: [-1] * 8)
     region_unks: list[int] = field(default_factory=lambda: [0] * 8)  # TODO: is this the right default?
@@ -257,6 +394,14 @@ class CompositeShape(RegionShape):
         self.regions[index] = region
         self.region_indices[index] = -2  # indicates stale
         self.region_unks[index] = unk
+
+    def get_three_dimensions(self) -> tuple[float, float, float]:
+        """Not compatible."""
+        raise ValueError("Composite shapes do not have dimensions to get.")
+
+    def set_three_dimensions(self, dimensions: tuple[float, float, float]):
+        """Not compatible."""
+        raise ValueError("Composite shapes do not have dimensions to set.")
 
 
 # For JSON mostly.

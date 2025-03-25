@@ -6,10 +6,11 @@ import abc
 import logging
 import re
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 
 from soulstruct.base.game_file import GameFile
+from soulstruct.base.game_types import Flag
 from soulstruct.dcx import DCXType
 from soulstruct.utilities.binary import *
 from soulstruct.utilities.conversion import floatify
@@ -28,12 +29,11 @@ _LOGGER = logging.getLogger("soulstruct")
 _EVENT_CALL_RE = re.compile(r"( *)(Event|CommonFunc)_(\d+)\(([\d\-,. \n]+)\) *(\n|$)?")
 
 
-@dataclass(slots=True)
 class EMEVDHeaderStruct(BinaryStruct):
     """Indicates fields that will always be present in this header, but cannot be used."""
-    _signature: bytes = field(init=False, **BinaryString(4, asserted=b"EVD"))
+    _signature: bytes = binary_string(4, asserted=b"EVD", init=False)
     big_endian: bool
-    varint_size_check: sbyte = field(**Binary(asserted=[-1, 0]))  # -1 if True, 0 if False
+    varint_size_check: sbyte = binary(asserted=[-1, 0])  # -1 if True, 0 if False
     version_unk_1: bool
     version_unk_2: sbyte
     version: uint
@@ -42,7 +42,7 @@ class EMEVDHeaderStruct(BinaryStruct):
     events_offset: varuint
     instructions_count: varuint
     instructions_offset: varuint
-    _unknown_count: varuint = field(init=False, **Binary(asserted=0))  # unused in all games
+    _unknown_count: varuint = binary(asserted=0, init=False)  # unused in all games
     unknown_offset: varuint  # unused in all games (but still an offset, at `base_arg_data_offset`)
     event_layers_count: varuint
     event_layers_offset: varuint
@@ -55,10 +55,9 @@ class EMEVDHeaderStruct(BinaryStruct):
     packed_strings_size: varuint
     packed_strings_offset: varuint
     # TODO: only in 32-bit versions (PTDE, DSR). Can maybe just do a `pad_align(8)` to save the struct subclasses.
-    # _pad2: bytes = field(**BinaryPad(4))
+    # _pad2: bytes = binary_pad(4)
 
 
-@dataclass(slots=True)
 class EMEVD(GameFile, abc.ABC):
     """Packed list of "event scripts" that are loaded in a particular map, or all maps ("common").
 
@@ -116,7 +115,7 @@ class EMEVD(GameFile, abc.ABC):
 
     @classmethod
     def from_evs_parser(cls, evs_parser: EVSParser) -> tp.Self:
-        return cls.from_numeric_string(evs_parser.numeric_emevd, evs_parser.map_name)
+        return cls.from_numeric_string(evs_parser.numeric_emevd, evs_parser.name)
 
     @classmethod
     def from_evs_string(
@@ -128,7 +127,7 @@ class EMEVD(GameFile, abc.ABC):
     ) -> tp.Self:
         try:
             parser = cls.EVS_PARSER(
-                evs_string, map_name=map_name, script_directory=script_directory, common_func_evs=common_func_evs
+                evs_string, name=map_name, script_directory=script_directory, common_func_evs=common_func_evs
             )
         except Exception as ex:
             import traceback
@@ -178,7 +177,7 @@ class EMEVD(GameFile, abc.ABC):
     @classmethod
     def from_reader(cls, reader: BinaryReader) -> tp.Self:
         byte_order = ByteOrder.from_reader_peek(reader, 1, 4, b"\01", b"\00")
-        reader.default_byte_order = byte_order
+        reader.byte_order = byte_order
         reader.long_varints = cls.LONG_VARINTS
 
         header = EMEVDHeaderStruct.from_bytes(reader)
@@ -352,18 +351,22 @@ class EMEVD(GameFile, abc.ABC):
             self.regenerate_signatures()
 
         if enums_manager:
-            # Update `all_event_ids` and `star_import_module_names` of existing `GameEnumsManager`.
-            enums_manager.all_event_ids = list(self.events)
+            # Update `star_import_module_names` of existing `GameEnumsManager`.
             enums_manager.star_import_module_names = star_import_module_names
         else:
             # Create a new `GameEnumsManager` from the given module paths and events in this EMEVD.
             # User may want to supply an existing one if decompiling multiple EMEVDs that reference the same modules.
-            enums_manager = self.ENTITY_ENUMS_MANAGER(list(enums_module_paths), all_event_ids=list(self.events))
+            enums_manager = self.ENTITY_ENUMS_MANAGER(list(enums_module_paths))
             enums_manager.star_import_module_names = star_import_module_names
+
+        for event_id in self.events:
+            enums_manager.add_event_id(event_id)
 
         if self._common_func:
             # Update common event IDs of `GameEnumsManager`.
-            enums_manager.all_common_event_ids = list(self._common_func.events)
+            # TODO: If these aren't named 'CommonFunc_{ID}', incorrect calls will be written to EVS.
+            for event_id in self._common_func.events:
+                enums_manager.add_event_id(event_id, is_common=True)
 
         docstring = self.get_evs_docstring(docstring)
         game = self.get_game()
@@ -375,7 +378,6 @@ class EMEVD(GameFile, abc.ABC):
             for event in self.events.values()
         ]
 
-        # TODO: Does not catch calls that are already multi-line.
         for i in range(len(evs_events)):
             evs_events[i] = self.add_event_call_keywords(evs_events[i], enums_manager, self._common_func)
 

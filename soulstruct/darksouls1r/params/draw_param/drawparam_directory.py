@@ -7,7 +7,7 @@ import abc
 import logging
 import re
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 
 from soulstruct.base.game_file_directory import GameFileDirectory
@@ -20,7 +20,6 @@ def drawparambnd_property(area_name: str):
     return property(lambda self: self.files[f"{area_name}_DrawParam"])
 
 
-@dataclass(slots=True)
 class DrawParamDirectory(GameFileDirectory[DrawParamBND], abc.ABC):
 
     FILE_NAME_PATTERN: tp.ClassVar[str] = r"(a\d\d|default)_DrawParam\.parambnd"
@@ -99,7 +98,10 @@ class DrawParamDirectory(GameFileDirectory[DrawParamBND], abc.ABC):
                     )
                     continue
             else:
-                _LOGGER.warning(f"Ignoring unexpected file in `{cls.__name__}` directory: {file_path.name}")
+                if file_path.is_dir() and file_path.name != "__pycache__":
+                    _LOGGER.warning(f"Ignoring unexpected folder in `{cls.__name__}` directory: {file_path.name}")
+                elif file_path.is_file():
+                    _LOGGER.warning(f"Ignoring unexpected file in `{cls.__name__}` directory: {file_path.name}")
                 continue
 
         if all_bnd_stems:

@@ -2,16 +2,12 @@ from __future__ import annotations
 
 __all__ = ["CHARACTER_INIT_PARAM"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
 from soulstruct.utilities.binary import *
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class CHARACTER_INIT_PARAM(ParamRow):
     BaseRecMP: float = ParamField(
         float, "baseRec_mp", default=0.0,

@@ -4,6 +4,8 @@ Used in tandem with `*.emedf.json` to compile/decompile EVS <-> EMEVD scripts.
 """
 from __future__ import annotations
 
+__all__ = ["EMEDF", "EMEDF_ALIASES", "EMEDF_TESTS", "EMEDF_COMPARISON_TESTS"]
+
 import typing as tp
 
 from soulstruct.base.events.emevd.emedf import *
@@ -11,8 +13,6 @@ from soulstruct.darksouls1ptde.maps.constants import get_map_variable_name
 from soulstruct.darksouls1ptde.game_types import *
 from soulstruct.utilities.files import PACKAGE_PATH
 from ..enums import *
-
-__all__ = ["EMEDF", "EMEDF_ALIASES", "EMEDF_TESTS", "EMEDF_COMPARISON_TESTS"]
 
 
 EVENT_RETURN_TYPE = {
@@ -2189,7 +2189,7 @@ EMEDF = {
     },
     (2004, 1): {
         "alias": "SetAIState",
-        "docstring": "TODO",
+        "docstring": "Enable or disable battle AI of character. Does not affect logic AI (e.g. for patrolling).",
         "args": {
             "character": NO_DEFAULT(CharacterTyping) | HIDE_NAME,
             "state": BOOL | HIDE_NAME,
@@ -2213,7 +2213,10 @@ EMEDF = {
     },
     (2004, 3): {
         "alias": "MoveToEntity",
-        "docstring": "Basic move. I recommend you use the combined `Move` function.",
+        "docstring": """
+            Basic move. I recommend you use the combined `Move` function. Valid `dummy_id` MUST be supplied for 
+            character destinations (and possibly objects) or no movement will occur.
+        """,
         "args": {
             "character": NO_DEFAULT(CharacterTyping) | HIDE_NAME,
             "destination_type": AUTO_COORD_ENTITY_TYPE("destination"),
@@ -2387,6 +2390,8 @@ EMEDF = {
         "alias": "SetInvincibilityState",
         "docstring": """
             Character cannot take damage or die.
+            
+            NOTE: Disabling invincibility will also disable immortality.
         """,
         "args": {
             "character": NO_DEFAULT(CharacterTyping) | HIDE_NAME,

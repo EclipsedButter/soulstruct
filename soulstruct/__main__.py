@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 
 from soulstruct._logging import CONSOLE_HANDLER, FILE_HANDLER
+from soulstruct.utilities.files import create_bak
 from soulstruct.utilities.text import word_wrap
 
 LOG_LEVELS = {"debug", "info", "warning", "error", "fatal", "critical"}
@@ -24,10 +25,13 @@ _LOGGER = logging.getLogger("soulstruct")
 
 parser = argparse.ArgumentParser(prog="soulstruct", description="Launch Soulstruct programs or adjust settings.")
 
+parser.add_argument("--undcx", action="store", help=word_wrap("Remove DCX compression and extension from file."))
 parser.add_argument("--binderpack", action="store", help=word_wrap("Repack a BND/BXF from the given source directory."))
 parser.add_argument("--binderunpack", action="store", help=word_wrap("Unpack a BND/BXF from the given source file."))
 parser.add_argument("--tpfpack", action="store", help=word_wrap("Repack a TPF from the given source directory."))
 parser.add_argument("--tpfunpack", action="store", help=word_wrap("Unpack a TPF from the given source file."))
+parser.add_argument("--msbtojson", action="store", help=word_wrap("Convert an MSB file to JSON (DS1R only)."))
+parser.add_argument("--jsontomsb", action="store", help=word_wrap("Convert a JSON file to MSB (DS1R only)."))
 parser.add_argument("--restorebak", action="store", help=word_wrap("Restore a BAK file, overwriting any non-BAK file."))
 parser.add_argument(
     "--consoleLogLevel",
@@ -64,6 +68,19 @@ def soulstruct_main(ss_args):
         file_log_level = getattr(logging, ss_args.fileLogLevel.upper())
     FILE_HANDLER.setLevel(file_log_level)
 
+    if ss_args.undcx is not None:
+        from soulstruct.dcx import decompress
+        dcx_path = Path(ss_args.undcx)
+        uncompressed, dcx_type = decompress(dcx_path)
+        undcx_path = dcx_path.with_suffix("") if dcx_path.suffix == ".dcx" else dcx_path.with_suffix(".undcx")
+        if undcx_path.is_file():
+            create_bak(undcx_path)
+        with undcx_path.open("wb") as f:
+            f.write(uncompressed)
+        return
+
+    # TODO: `dcx` command to compress a file. (Requires user to specify DCX type, or assert a metafile saying such.)
+
     if ss_args.binderpack is not None:
         from soulstruct.containers import Binder
         binder = Binder.from_unpacked_path(ss_args.binderpack)
@@ -86,6 +103,26 @@ def soulstruct_main(ss_args):
         from soulstruct.containers.tpf import TPF
         tpf = TPF.from_unpacked_path(ss_args.tpfpack)
         tpf.write()
+        return
+
+    if ss_args.msbtojson is not None:
+        from soulstruct.darksouls1r.maps import MSB
+        try:
+            msb = MSB.from_path(ss_args.msbtojson)
+        except ValueError as ex:
+            _LOGGER.error(f"Could not load MSB file: {ex}")
+            raise
+        msb.write_json(msb.path.with_suffix(f"{msb.path.suffix}.json"))
+        return
+
+    if ss_args.jsontomsb is not None:
+        from soulstruct.darksouls1r.maps import MSB
+        try:
+            msb = MSB.from_json(ss_args.jsontomsb)
+        except ValueError as ex:
+            _LOGGER.error(f"Could not load JSON file as MSB: {ex}")
+            raise
+        msb.write(msb.path.with_name(f"{msb.path_minimal_stem}.msb"))
         return
 
     if ss_args.restorebak is not None:
@@ -117,6 +154,6 @@ def soulstruct_main(ss_args):
 
 try:
     soulstruct_main(parser.parse_args())
-except Exception as ex:
-    _LOGGER.exception(f"Error occurred in soulstruct.__main__: {ex}")
+except Exception as main_ex:
+    _LOGGER.exception(f"Error occurred in soulstruct.__main__: {main_ex}")
     input("Press any key to exit.")

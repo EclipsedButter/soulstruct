@@ -24,13 +24,13 @@ MSBEntryType = tp.TypeVar("MSBEntryType", bound=MSBEntry)
 class MSBEntryList(IDList[MSBEntryType]):
 
     supertype: str
-    entry_class: type[MSBEntry] | None  # may be `None` for transient supertype lists
+    entry_class: type[MSBEntryType]  # may be an abstract base class for transient supertype lists
 
     def __init__(
         self,
         entries: tp.Iterable[MSBEntryType],
         supertype: str,
-        entry_class: type[MSBEntryType] | None,
+        entry_class: type[MSBEntryType],
     ):
         self.supertype = supertype
         self.entry_class = entry_class
@@ -139,7 +139,7 @@ class MSBEntryList(IDList[MSBEntryType]):
         # noinspection PyArgumentList
         return self.entry_class(name=f"Default{self.entry_class.__name__}")
 
-    def new(self, new_index=-1, **kwargs) -> MSBEntryType:
+    def new(self, new_index=-1, /, **kwargs) -> MSBEntryType:
         """Create a new `MSBEntry` of this list's subtype and append it to list (or insert it at `new_index`)."""
         if "entity_enum" in kwargs:
             if "name" in kwargs or "entity_id" in kwargs:

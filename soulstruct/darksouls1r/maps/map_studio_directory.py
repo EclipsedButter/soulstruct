@@ -4,7 +4,7 @@ from __future__ import annotations
 __all__ = ["MapStudioDirectory"]
 
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 
 from soulstruct.base.game_file_directory import map_property
 from soulstruct.base.maps.map_studio_directory import MapStudioDirectory as _BaseMapStudioDirectory
@@ -13,7 +13,6 @@ from .constants import *
 from .msb import MSB
 
 
-@dataclass(slots=True)
 class MapStudioDirectory(_BaseMapStudioDirectory[MSB]):
     """Dark Souls (either version) `MapStudio` directory.
 

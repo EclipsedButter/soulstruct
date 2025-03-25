@@ -3,19 +3,16 @@ from __future__ import annotations
 
 __all__ = ["OBJBND"]
 
-from dataclasses import dataclass, field
+from dataclasses import field
 
 from soulstruct.containers import BinderVersion, BinderVersion4Info
 from soulstruct.containers.binder_types import FLVERBinder
 from soulstruct.dcx import DCXType
 from soulstruct.games import BLOODBORNE
-from .flver import FLVER
 
 
-@dataclass(slots=True)
-class OBJBND(FLVERBinder[FLVER]):
+class OBJBND(FLVERBinder):
 
-    FLVER_CLASS = FLVER
     DEFAULT_ENTRY_ROOT = f"{BLOODBORNE.interroot_prefix}\\obj"
     MAX_FLVER_COUNT = 99
 

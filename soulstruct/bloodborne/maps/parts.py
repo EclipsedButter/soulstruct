@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from soulstruct.base.maps.msb.field_info import MapFieldInfo
 from soulstruct.base.maps.msb.msb_entry import *
 from soulstruct.base.maps.msb.parts import *
-from soulstruct.base.maps.msb.utils import GroupBitSet256
+from soulstruct.base.maps.msb.utils import BitSet256
 from soulstruct.bloodborne.game_types import *
 from soulstruct.exceptions import InvalidFieldValueError
 from soulstruct.utilities.binary import *
@@ -36,7 +36,6 @@ if tp.TYPE_CHECKING:
     from .events import MSBEnvironmentEvent
 
 
-@dataclass(slots=True)
 class PartHeaderStruct(MSBHeaderStruct):
     description_offset: long  # only game with descriptions!
     name_offset: long
@@ -48,10 +47,10 @@ class PartHeaderStruct(MSBHeaderStruct):
     translate: Vector3
     rotate: Vector3
     scale: Vector3
-    draw_groups: GroupBitSet256 = field(**BinaryArray(8, uint))
-    display_groups: GroupBitSet256 = field(**BinaryArray(8, uint))
-    backread_groups: GroupBitSet256 = field(**BinaryArray(8, uint))
-    _pad1: bytes = field(init=False, **BinaryPad(4))
+    draw_groups: BitSet256 = binary_array(8, uint)
+    display_groups: BitSet256 = binary_array(8, uint)
+    backread_groups: BitSet256 = binary_array(8, uint)
+    _pad1: bytes = binary_pad(4, init=False)
     supertype_data_offset: long
     subtype_data_offset: long
     gparam_data_offset: long
@@ -111,30 +110,27 @@ class PartHeaderStruct(MSBHeaderStruct):
         writer.append(packed_sib_path)
 
 
-@dataclass(slots=True)
 class PartDataStruct(MSBBinaryStruct):
     entity_id: int
     part_unk_x04_x05: sbyte
     part_unk_x05_x06: sbyte
     part_unk_x06_x07: sbyte
     part_unk_x07_x08: sbyte
-    _pad1: bytes = field(**BinaryPad(4))
+    _pad1: bytes = binary_pad(4)
     lantern_id: byte
     lod_id: sbyte
     part_unk_x0e_x0f: byte
     part_unk_x0f_x10: byte
 
 
-@dataclass(slots=True)
 class GParamDataStruct(MSBBinaryStruct):
     light_set_id: int
     fog_id: int
     light_scattering_id: int
     environment_map_id: int
-    _pad1: bytes = field(init=False, **BinaryPad(16))
+    _pad1: bytes = binary_pad(16, init=False)
 
 
-@dataclass(slots=True)
 class SceneGParamDataStruct(MSBBinaryStruct):
     sg_unk_x00_x04: int
     sg_unk_x04_x08: int
@@ -142,14 +138,14 @@ class SceneGParamDataStruct(MSBBinaryStruct):
     sg_unk_x0c_x10: int
     sg_unk_x10_x14: int
     sg_unk_x14_x18: int
-    _pad1: bytes = field(init=False, **BinaryPad(36))
-    event_ids: list[byte] = field(**BinaryArray(4))
+    _pad1: bytes = binary_pad(36, init=False)
+    event_ids: list[byte] = binary_array(4)
     sg_unk_x40_x44: float
-    _pad2: bytes = field(init=False, **BinaryPad(12))
+    _pad2: bytes = binary_pad(12, init=False)
 
 
 @dataclass(slots=True, eq=False, repr=False)
-class MSBPart(BaseMSBPart, abc.ABC):
+class MSBPart(BaseMSBPart[BitSet256], abc.ABC):
 
     HEADER_STRUCT = PartHeaderStruct
     STRUCTS = {
@@ -158,10 +154,10 @@ class MSBPart(BaseMSBPart, abc.ABC):
 
     NAME_ENCODING: tp.ClassVar[str] = "utf-16-le"
     SIB_PATH_TEMPLATE: tp.ClassVar[str] = "N:\\SPRJ\\data\\Model\\map\\{map_stem}\\sib\\layout.SIB"
-    GROUP_BIT_COUNT: tp.ClassVar[int] = 256
+    BIT_SET_TYPE: tp.ClassVar = BitSet256
 
     # NOTE: `model` defined by subclasses.
-    backread_groups: GroupBitSet256 = field(default_factory=GroupBitSet256.all_off)
+    backread_groups: BitSet256 = field(default_factory=BitSet256.all_off)
     part_unk_x04_x05: int = field(default=-1, **MapFieldInfo(
         "Unknown Parts Data [x04-x05]", "Unknown parts integer. Common values: -1, 0, 8"))
     part_unk_x05_x06: int = field(default=-1, **MapFieldInfo(
@@ -178,9 +174,8 @@ class MSBPart(BaseMSBPart, abc.ABC):
         "Unknown Parts Data [x0f-x10]", "Unknown parts integer. Common values: 0"))
 
 
-@dataclass(slots=True)
 class MapPieceDataStruct(MSBBinaryStruct):
-    _pad1: bytes = field(**BinaryPad(8))
+    _pad1: bytes = binary_pad(8)
 
 
 @dataclass(slots=True, eq=False, repr=False)
@@ -202,16 +197,15 @@ class MSBMapPiece(MSBPart):
     environment_map_id: int = field(default=0, **MapFieldInfo("Environment Map ID", "Environment map GParam ID."))
 
 
-@dataclass(slots=True)
 class ObjectDataStruct(MSBBinaryStruct):
-    _pad1: bytes = field(init=False, **BinaryPad(4))
+    _pad1: bytes = binary_pad(4, init=False)
     _draw_parent_index: int = field(**EntryRef("PARTS_PARAM_ST"))
     break_term: sbyte
     net_sync_type: sbyte
     collision_hit_filter: bool
     set_main_object_structure_bools: bool
-    animation_ids: list[short] = field(**BinaryArray(4))
-    model_vfx_param_id_offsets: list[short] = field(**BinaryArray(4))
+    animation_ids: list[short] = binary_array(4)
+    model_vfx_param_id_offsets: list[short] = binary_array(4)
 
 
 @dataclass(slots=True, eq=False, repr=False)
@@ -254,9 +248,8 @@ class MSBObject(MSBPart):
         self._consume_index(entry_lists, "PARTS_PARAM_ST", "draw_parent")
 
 
-@dataclass(slots=True)
 class CharacterDataStruct(MSBBinaryStruct):
-    _pad1: bytes = field(init=False, **BinaryPad(8))
+    _pad1: bytes = binary_pad(8, init=False)
     ai_id: int
     character_id: int
     talk_id: int
@@ -264,7 +257,7 @@ class CharacterDataStruct(MSBBinaryStruct):
     chr_unk_x18_x1c: int
     _draw_parent_index: int = field(**EntryRef("PARTS_PARAM_ST"))
     chr_unk_x20_x22: short
-    _pad2: bytes = field(init=False, **BinaryPad(6))
+    _pad2: bytes = binary_pad(6, init=False)
     _patrol_regions_indices: list[short] = field(**EntryRef("POINT_PARAM_ST", array_size=8))
     default_animation: int
     damage_animation: int
@@ -305,7 +298,7 @@ class MSBCharacter(MSBPart):
     environment_map_id: int = field(default=0, **MapFieldInfo("Environment Map ID", "Environment map GParam ID."))
 
     _draw_parent_index: int = None
-    _patrol_regions_indices: list[int] = field(default=None, **BinaryArray(8))
+    _patrol_regions_indices: list[int] = binary_array(8, default=None)
 
     HIDE_FIELDS: tp.ClassVar = (
         "scale",
@@ -318,9 +311,8 @@ class MSBCharacter(MSBPart):
         self._consume_indices(entry_lists, "POINT_PARAM_ST", "patrol_regions")
 
 
-@dataclass(slots=True)
 class PlayerStartDataStruct(MSBBinaryStruct):
-    _pad1: bytes = field(init=False, **BinaryPad(16))
+    _pad1: bytes = binary_pad(16, init=False)
 
 
 @dataclass(slots=True, eq=False, repr=False)
@@ -342,7 +334,6 @@ class MSBPlayerStart(MSBPart):
     model: MSBCharacterModel | MSBPlayerModel = None
 
 
-@dataclass(slots=True)
 class CollisionDataStruct(MSBBinaryStruct):
     hit_filter_id: byte
     sound_space_type: byte
@@ -423,9 +414,9 @@ class MSBCollision(MSBPart):
     _play_region_id: int = field(default=0, repr=False)
     _stable_footing_flag: int = field(default=0, repr=False)
 
-    # Field type overrides.
+    # Field type/default overrides.
     model: MSBCollisionModel = None
-    display_groups: GroupBitSet256 = field(default_factory=GroupBitSet256.all_on)
+    display_groups: BitSet256 = field(default_factory=BitSet256.all_on)
 
     hit_filter_id: int = field(default=CollisionHitFilter.Normal.value, **MapFieldInfo(game_type=CollisionHitFilter))
     sound_space_type: int = 0
@@ -504,24 +495,26 @@ class MSBCollision(MSBPart):
 
 
 # Still slightly awkward to get dataclasses, properties, and `__init__` to interact well. This is the workaround.
+# noinspection PyTypeChecker
 MSBCollision.force_place_name_banner = property(
     lambda self: self.get_force_place_name_banner(),
     lambda self, value: self.set_force_place_name_banner(value),
 )
+# noinspection PyTypeChecker
 MSBCollision.stable_footing_flag = property(
     lambda self: self.get_stable_footing_flag(),
     lambda self, value: self.set_stable_footing_flag(value),
 )
+# noinspection PyTypeChecker
 MSBCollision.play_region_id = property(
     lambda self: self.get_play_region_id(),
     lambda self, value: self.set_play_region_id(value),
 )
 
 
-@dataclass(slots=True)
 class NavmeshDataStruct(MSBBinaryStruct):
     # No 'navmesh_groups' anymore.
-    _pad1: bytes = field(**BinaryPad(8))
+    _pad1: bytes = binary_pad(8)
 
 
 class MSBNavmesh(MSBPart):
@@ -548,11 +541,10 @@ class MSBDummyCharacter(MSBCharacter):
     SUBTYPE_ENUM: tp.ClassVar = MSBPartSubtype.DummyCharacter
 
 
-@dataclass(slots=True)
 class ConnectCollisionDataStruct(MSBBinaryStruct):
     _collision_index: int = field(**EntryRef("collisions"))
-    connected_map_id: list[sbyte] = field(**BinaryArray(4))
-    _pad1: bytes = field(**BinaryPad(8))
+    connected_map_id: list[sbyte] = binary_array(4)
+    _pad1: bytes = binary_pad(8)
 
 
 @dataclass(slots=True, eq=False, repr=False)

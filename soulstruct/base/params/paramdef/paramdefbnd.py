@@ -6,7 +6,7 @@ import abc
 import logging
 import re
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 
 from soulstruct.containers import Binder
 from soulstruct.games import Game, get_game
@@ -18,7 +18,6 @@ _LOGGER = logging.getLogger("soulstruct")
 _PARAMDEF_RE = re.compile(r".*\.paramdef")
 
 
-@dataclass(slots=True)
 class ParamDefBND(Binder, abc.ABC):
     """BND container with all the `ParamDef` definitions for a given game.
 
@@ -29,6 +28,8 @@ class ParamDefBND(Binder, abc.ABC):
     If you want to modify a `ParamDefBND`, you are far too powerful a modder for Soulstruct, and I cannot make that
     journey with you at this time.
     """
+
+    IS_SPLIT_BXF: tp.ClassVar[bool] = False
 
     _BUNDLED: tp.ClassVar[dict[Game, ParamDefBND]] = {}
 

@@ -25,7 +25,7 @@ class MatDef(_BaseMatDef):
         UVTexture1 = 1
         UVBloodMaskOrLightmap = 2  # lightmap ('DOLTexture') for Map Pieces, blood mask for characters
         UVBlendMask = 3
-        UVWindDataMain = 4
+        UVData_WindA = 4
         # TODO: other data UVs?
 
     SAMPLER_ALIASES: tp.ClassVar[dict[str, str]] = {
@@ -47,7 +47,7 @@ class MatDef(_BaseMatDef):
     SAMPLER_GAME_NAMES: tp.ClassVar[dict[str, str]] = {v: k for k, v in SAMPLER_ALIASES.items()}
 
     # Class regex patterns for MTD name parsing.
-    NAME_TAG_RE: tp.ClassVar[str, re.Pattern] = {
+    NAME_TAG_RE: tp.ClassVar[dict[str, re.Pattern]] = {
         "Albedo": re.compile(r".*\[.*A.*\].*"),
         "Metallic": re.compile(r".*\[.*R.*\].*"),
         "Shininess": re.compile(r".*\[.*S.*\].*"),
@@ -72,7 +72,7 @@ class MatDef(_BaseMatDef):
     }
 
     EXTRA_SHADER_UV_LAYERS: tp.ClassVar[dict[str, list[UVLayer]]] = {
-        "Grass": [UVLayer.UVWindDataMain],
+        "Grass": [UVLayer.UVData_WindA],
     }
 
     KNOWN_SHADER_STEMS: tp.ClassVar[dict[str, list[str | re.Pattern]]] = {
@@ -97,7 +97,7 @@ class MatDef(_BaseMatDef):
         return matdef
 
     @classmethod
-    def get_shader_category(cls, shader_stem: str) -> str:
+    def _get_shader_category(cls, shader_stem: str) -> str:
         """99% of Bloodborne shaders start with 'GXFlver'."""
         return shader_stem.removeprefix("GXFlver_").split("_")[0]
 
@@ -128,19 +128,13 @@ class MatDef(_BaseMatDef):
             # UV/UVPair fields will be inserted here if needed.
         ]
 
-        texture_group_count = 0
-        if self.get_sampler_with_alias("Main 0 Albedo"):
-            texture_group_count += 1
-        if self.get_sampler_with_alias("Main 1 Albedo"):
-            texture_group_count += 1
-
         if self.get_sampler_with_alias("Main 0 Normal"):
             # Uses tangent vertex data.
             data_types.insert(2, VertexTangent(VertexDataFormatEnum.FourBytesB, 0))
             if self.get_sampler_with_alias("Main 1 Normal"):
                 # Uses second tangent vertex data for second texture group normal.
                 data_types.insert(3, VertexTangent(VertexDataFormatEnum.FourBytesB, 1))
-        elif self.get_sampler_with_alias("Main 1 Albedo"):
+        elif self.get_sampler_with_alias("Main 1 Normal"):
             # Still uses one tangent field. NOTE: I highly doubt any game shaders do this.
             data_types.insert(2, VertexTangent(VertexDataFormatEnum.FourBytesB, 0))
 
@@ -163,7 +157,7 @@ class MatDef(_BaseMatDef):
 
         return VertexArrayLayout(data_types)
 
-    def get_character_layout(self) -> VertexArrayLayout:
+    def get_non_map_piece_layout(self) -> VertexArrayLayout:
         """Get a standard vertex array layout for character (and probably object) materials in BB."""
 
         if len(self.samplers) == 1 and self.samplers[0].alias == "Main 0 Albedo":

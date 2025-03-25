@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ["NVMTriangle", "NavmeshFlag", "NVMBox", "NVMEventEntity", "NVM"]
+__all__ = ["NVMTriangle", "NVMBox", "NVMEventEntity", "NVM"]
 
 import logging
 import typing as tp
@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from soulstruct.base.game_file import GameFile
-from soulstruct.darksouls1r.events.enums import NavmeshFlag
+from soulstruct.base.events.enums import NavmeshFlag
 from soulstruct.utilities.binary import *
 from soulstruct.utilities.maths import Vector3, Matrix3
 
@@ -21,7 +21,9 @@ _LOGGER = logging.getLogger("soulstruct")
 class NVMTriangle:
     """A single triangle face in a `NVM` mesh.
 
-    Has flags that indicate whether the triangle is walkable, has any breakable obstacles on it, etc.
+    Has bit flags that indicate whether the triangle is walkable, has any breakable obstacles on it, etc., which
+    correspond to the game's `NavmeshFlag` EMEVD enum (not imported here). Note that these bit flags are written in
+    'big endian' order in the NVM file (16 bits).
 
     TODO: Should probably just hold these in an 8-column NumPy array.
     """
@@ -36,7 +38,7 @@ class NVMTriangle:
         vertex_indices = reader.unpack("3i")
         connected_indices = reader.unpack("3i")
         obstacles_and_flags = reader.unpack("I")[0]
-        if obstacles_and_flags & 3 != 0:
+        if obstacles_and_flags & 0b11 != 0:
             raise ValueError(f"Lowest two bits of NVMTriangle obstacle/flag int != 0: {obstacles_and_flags:010b}")
         obstacle_count = (obstacles_and_flags >> 2) & 0x3FFF
         all_flags = cls.reverse_flags_bits(obstacles_and_flags >> 16)
@@ -48,8 +50,8 @@ class NVMTriangle:
         obstacles_and_flags = (self.obstacle_count << 2) | (self.reverse_flags_bits(self.flags) << 16)
         writer.pack("I", obstacles_and_flags)
 
-    def has_flag(self, navmesh_type: NavmeshFlag):
-        return self.flags & navmesh_type == navmesh_type
+    def has_flag(self, navmesh_flag: NavmeshFlag) -> bool:
+        return self.flags & navmesh_flag == navmesh_flag
 
     def get_centroid(self, vertices: list[Vector3]) -> Vector3:
         """Return centroid point of triangle (just average of vertices)."""
@@ -63,25 +65,10 @@ class NVMTriangle:
     def reverse_flags_bits(n):
         return int(f"{{0:016b}}".format(n)[::-1], 2)
 
-    @property
-    def flag(self) -> NavmeshFlag:
-        """Try to access the triangle flags as a single `NavmeshFlag` enum.
-
-        Will raise `ValueError` if multiple flags are set (which does happen).
-        """
-        try:
-            return NavmeshFlag(self.flags)
-        except ValueError:  # unexpected multiple flags
-            raise ValueError(f"`NVMTriangle` has multiple flags: {self.flags:016b}")
-
-    @flag.setter
-    def flag(self, flag: NavmeshFlag):
-        """Set the triangle flags to a single value."""
-        self.flags = flag.value
-
     def __repr__(self):
         try:
-            flag = self.flag
+            # Check for single bit flag.
+            flag = NavmeshFlag(self.flags)
             if flag == NavmeshFlag.Default:
                 return (
                     f"NVMTriangle({self.vertex_indices}, "
@@ -92,20 +79,28 @@ class NVMTriangle:
                 f"NVMTriangle({self.vertex_indices}, "
                 f"connected_indices={self.connected_indices}, "
                 f"obstacle_count={self.obstacle_count}, "
-                f"flag=<NavmeshFlag.{flag.name}>)"
+                f"flags=<NavmeshFlag.{flag.name}>)"
             )
         except ValueError:
             return (
                 f"NVMTriangle({self.vertex_indices}, "
                 f"connected_indices={self.connected_indices}, "
                 f"obstacle_count={self.obstacle_count}, "
-                f"all_flags={self.flags})"
+                f"flags={self.flags:016b})"
             )
 
 
 @dataclass(slots=True)
 class NVMBox:
     """AABB in a quaternary tree structure that covers the navmesh."""
+
+    class STRUCT(BinaryStruct):
+        start_corner: Vector3
+        _triangle_count: int
+        end_corner: Vector3
+        _triangles_offset: int
+        _child_box_offsets: list[int] = binary_array(4)
+        _pad: bytes = binary_pad(0x10, init=False)
 
     start_corner: Vector3
     end_corner: Vector3
@@ -114,13 +109,10 @@ class NVMBox:
 
     @classmethod
     def from_nvm_reader(cls, reader: BinaryReader) -> NVMBox:
-        start_corner = Vector3(reader.unpack("3f"))
-        triangle_count = reader["i"]
-        end_corner = Vector3(reader.unpack("3f"))
-        triangles_offset = reader["i"]
+        header = cls.STRUCT.from_bytes(reader)
 
-        child_box_offsets = reader.unpack("iiii")
-        reader.assert_pad(16)
+        triangle_count = header.pop("_triangle_count")
+        triangles_offset = header.pop("_triangles_offset")
 
         # Box triangle indices are stored separately (earlier in file).
         if triangle_count > 0:
@@ -128,7 +120,8 @@ class NVMBox:
         else:
             triangle_indices = []
 
-        if child_box_offsets == (0, 0, 0, 0):
+        child_box_offsets = header.pop("_child_box_offsets")
+        if child_box_offsets == [0, 0, 0, 0]:
             child_boxes = []
         elif 0 in child_box_offsets:
             raise ValueError(f"Child box offsets should be all zero (leaf) or non-zero, not: {child_box_offsets}")
@@ -138,7 +131,7 @@ class NVMBox:
                 reader.seek(child_box_offset)
                 child_boxes.append(cls.from_nvm_reader(reader))  # recur (no need to reset reader position)
 
-        return cls(start_corner, end_corner, triangle_indices, child_boxes)
+        return cls(header.start_corner, header.end_corner, triangle_indices, child_boxes)
 
     def to_nvm_writer(self, writer: BinaryWriter, triangle_index_offsets: deque[int]) -> int:
         """Pack `NVMBox` to `writer`. Returns start offset of pack. Dequeues triangle indices from given list.
@@ -156,12 +149,14 @@ class NVMBox:
             ]
 
         box_offset = writer.position
-        writer.pack("3f", *self.start_corner)
-        writer.pack("i", len(self.triangle_indices))
-        writer.pack("3f", *self.end_corner)
-        writer.pack("i", triangle_index_offsets.popleft())
-        writer.pack("4i", *child_box_offsets)
-        writer.pad(16)
+        header = self.STRUCT(
+            start_corner=self.start_corner,
+            _triangle_count=len(self.triangle_indices),
+            end_corner=self.end_corner,
+            _triangles_offset=triangle_index_offsets.popleft(),
+            _child_box_offsets=child_box_offsets,
+        )
+        header.to_writer(writer)
         return box_offset
 
     @property
@@ -191,13 +186,15 @@ class NVMEventEntity:
         writer.pack("4i", self.entity_id, index_offset, len(self.triangle_indices), 0)
 
 
-@dataclass(slots=True)
 class NVM(GameFile):
     """Holds a navigation mesh (vertices and triangles), per-triangle navigation flags, groups of triangles that can be
-    manipulated with EMEVD scripts, and a box quad-tree hierarchy that covers the mesh (which is simple to generate)."""
+    manipulated with EMEVD scripts, and a box quad-tree hierarchy that covers the mesh (which is simple to generate).
+
+    Note that there is no internal name to worry about. You can re-use an NVM by simply changing its file name.
+    """
 
     # TODO: Always correct for DS1. Not sure about DeS.
-    BOX_LEVELS: tp.ClassVar[int] = 3  # number of nested quaternary levels in box tree
+    BOX_LEVELS: tp.ClassVar[int] = 3  # number of nested quaternary levels in box tree (excluding root box)
     BOX_PADDING: tp.ClassVar[float] = 0.5  # in-game distance units
 
     # Absolute cross-products smaller than this will NOT be counted as outside triangle.
@@ -218,26 +215,29 @@ class NVM(GameFile):
             # Quadtree boxes are automatically generated from vertex extents.
             self.generate_quadtree_boxes()
 
-    @dataclass(slots=True)
     class NVMHeaderStruct(BinaryStruct):
-        endianness: int = field(**Binary(asserted=[1, 0x1000000]))  # 1 (LE) or 0x1000000 (BE)
+        _one: int = binary(asserted=1, init=False)  # peeked to detect endianness
         vertices_count: int
-        vertices_offset: int = field(init=False, **Binary(asserted=0x80))  # immediately after this header
+        vertices_offset: int = binary(asserted=0x80, init=False)  # immediately after this header
         triangles_count: int
         triangles_offset: int  # predictable from vertex count
         root_box_offset: int  # last data in file
-        _pad1: bytes = field(init=False, **BinaryPad(4))
+        _pad1: bytes = binary_pad(4, init=False)
         entities_count: int  # triangles marked with entity IDs (matching `MSBNavigation` events)
         entities_offset: int
-        _pad2: bytes = field(init=False, **BinaryPad(92))
+        _pad2: bytes = binary_pad(92, init=False)
 
     @classmethod
     def from_reader(cls, reader: BinaryReader) -> tp.Self:
-        endian_byte = reader.peek("i")[0]
-        if endian_byte == 1:
-            reader.default_byte_order = ByteOrder.LittleEndian
-        elif endian_byte == 0x1000000:
-            reader.default_byte_order = ByteOrder.BigEndian
+        endian_one = reader.peek(4)
+        if endian_one == b"\x01\x00\x00\x00":
+            reader.byte_order = ByteOrder.LittleEndian
+        elif endian_one == b"\x00\x00\x00\x01":
+            reader.byte_order = ByteOrder.BigEndian
+        else:
+            raise ValueError(
+                f"Could not determine byte order from first four bytes (expected value == 1) of NVM: {endian_one}"
+            )
 
         header = cls.NVMHeaderStruct.from_bytes(reader)
         expected_triangles_offset = 0x80 + header.vertices_count * 0xC
@@ -246,7 +246,7 @@ class NVM(GameFile):
             double_triangles_offset = 0x80 + header.vertices_count * 0x18
             if header.triangles_offset == double_triangles_offset:
                 _LOGGER.warning("`NVM` file appears to have 64-bit vertices. Will truncate to 32-bit vertices.")
-                dtype = np.dtype("<f8") if reader.default_byte_order == ByteOrder.LittleEndian else np.dtype(">f8")
+                dtype = np.dtype("<f8") if reader.byte_order == ByteOrder.LittleEndian else np.dtype(">f8")
                 vertices = np.frombuffer(reader.read(8 * 3 * header.vertices_count), dtype=dtype)
                 vertices = vertices.astype(np.float32)
             else:
@@ -256,7 +256,7 @@ class NVM(GameFile):
                 )
         else:
             # Read flat array of [x0, y0, z0, x1, y1, z1, ...] single-precision vertices.
-            dtype = np.dtype("<f4") if reader.default_byte_order == ByteOrder.LittleEndian else np.dtype(">f4")
+            dtype = np.dtype("<f4") if reader.byte_order == ByteOrder.LittleEndian else np.dtype(">f4")
             vertices = np.frombuffer(reader.read(4 * 3 * header.vertices_count), dtype=dtype)
 
         vertices.shape = (header.vertices_count, 3)
@@ -270,10 +270,14 @@ class NVM(GameFile):
                 f"(root + three levels of division into four)."
             )
 
+        # TODO: In Demon's Souls, there seem to be some extra boxes AFTER the root box that are just straight-up junk.
+        #  The triangle and child box offsets they use are totally invalid, pointing randomly into the real box data,
+        #  and there's a random amount of padding after the root box before they start.
+
         reader.seek(header.entities_offset)
         event_entities = [NVMEventEntity.from_nvm_reader(reader) for _ in range(header.entities_count)]
         return cls(
-            big_endian=reader.default_byte_order == ByteOrder.BigEndian,
+            big_endian=reader.byte_order == ByteOrder.BigEndian,
             vertices=vertices,
             triangles=triangles,
             root_box=root_box,
@@ -283,14 +287,13 @@ class NVM(GameFile):
     def to_writer(self) -> BinaryWriter:
 
         # Validate dtype and shape of vertices array.
-        if self.vertices.dtype != np.float32:
-            raise ValueError(f"`NVM.vertices` array must contain 32-bit floats, not {self.vertices.dtype}.")
+        if self.vertices.dtype.type != np.float32:
+            raise ValueError(f"`NVM.vertices` array must contain 32-bit floats, not '{self.vertices.dtype.name}'.")
         if self.vertices.shape[1] != 3:
             raise ValueError(f"`NVM.vertices` array must have shape (N, 3), not {self.vertices.shape}.")
 
         writer = BinaryWriter(ByteOrder.big_endian_bool(self.big_endian))
         self.NVMHeaderStruct(
-            endianness=0x1000000 if self.big_endian else 1,
             vertices_count=self.vertices.shape[0],
             triangles_count=len(self.triangles),
             triangles_offset=RESERVED,

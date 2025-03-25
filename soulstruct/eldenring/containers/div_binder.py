@@ -14,11 +14,10 @@ from soulstruct.utilities.binary import BinaryReader, BinaryWriter
 _LOGGER = logging.getLogger("soulstruct")
 
 
-@dataclass(slots=True, kw_only=True, repr=False)
 class DivBinder(Binder):
     """Binder that optionally supports division into multiple sub-Binders when written, based on `.blf` Binder entries.
 
-    Identical to `Binder` if `use_blf_division` is `False`.
+    Identical to `Binder` if `write_blf_division` is `False`.
 
     NOTE: These Binders can sometimes have clashing entry IDs across the different sub-Binders (that end up being unique
     when those sub-Binders are written). Example: the HKX compendium files in Elden Ring's divided ANIBNDs (7000000).
@@ -191,7 +190,6 @@ class BLFCommmand:
         return matching_entries
 
 
-@dataclass(slots=True)
 class BLF(GameFile):
     """Binder List File. Contains a list of Binder files that should be used to split a DivBinder."""
 

@@ -4,14 +4,13 @@ __all__ = [
     "PACKAGE_PATH",
     "create_bak",
     "restore_bak",
-    "find_steam_common_paths",
     "import_arbitrary_module",
     "read_json",
     "write_json",
     "get_blake2b_hash",
+    "get_blake2b_hash_hex",
 ]
 
-import ctypes
 import hashlib
 import importlib.util
 import json
@@ -19,7 +18,6 @@ import logging
 import os
 import re
 import shutil
-import string
 import sys
 import types
 from pathlib import Path
@@ -31,78 +29,88 @@ LOG_BACKUP_CREATION = True
 
 
 def PACKAGE_PATH(*relative_parts) -> Path:
-    """Returns resolved path of given files in `soulstruct` package directory (the actual namespace directory containing
-    `__init__`, NOT the one above it containing `setup.py`)."""
+    """Returns resolved path of given files in `soulstruct` package directory. Path parts must start with "soulstruct"
+    or it will be automatically added (for PyInstaller compatibility).
+    """
+    if not relative_parts:
+        # Return package directory.
+        relative_path = Path("soulstruct")
+    else:
+        relative_path = Path(*relative_parts)
+        if relative_path.parts[0] != "soulstruct":
+            relative_path = Path("soulstruct", relative_path)
+
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return Path(getattr(sys, "_MEIPASS"), *relative_parts)
-    return Path(__file__).parent.parent.resolve().joinpath(*relative_parts)
+        return Path(getattr(sys, "_MEIPASS"), relative_path)
+
+    # Standard Python package:
+    package_path = Path(__file__).parent.parent.parent.resolve()  # go up three levels to package directory
+    return package_path / relative_path
 
 
-def create_bak(file_path, bak_suffix=".bak"):
+def create_bak(file_path: Path | str, bak_suffix=".bak") -> bool:
+    """Create a backup file with the given suffix if it does not already exist.
+
+    If `file_path` does not exist, does nothing.
+
+    Returns `True` if a backup file was created, `False` if it was not.
+    """
     file_path = Path(file_path)
-    if file_path.is_file():
-        bak_path = file_path.with_suffix(file_path.suffix + bak_suffix)
-        if not bak_path.is_file():
-            shutil.copy2(file_path, bak_path)
-            if LOG_BACKUP_CREATION:
-                _LOGGER.info(f"Created backup file: '{bak_path}'.")
-            return True
-    return False
+    if not file_path.is_file():
+        return False
+
+    bak_path = file_path.with_suffix(file_path.suffix + bak_suffix)
+    if bak_path.is_file():
+        return False  # already exists (we NEVER overwrite here)
+
+    shutil.copy2(file_path, bak_path)
+    if LOG_BACKUP_CREATION:
+        _LOGGER.info(f"Created backup file: '{bak_path}'.")
+    return True  # backup created
 
 
-def restore_bak(target=None, delete_baks=False):
-    """Restores '.bak' files, deleting whatever they would replace."""
+def restore_bak(target: Path | str, delete_baks=False, bak_suffix=".bak") -> int:
+    """Restores '.bak' files, deleting whatever they would replace.
+
+    `target` can be a file or directory path. If it's a file, it can be the BAK file itself, or the file for which a
+    BAK file exists. If it's a directory, all '.bak' files in the directory will be restored (NOT recursive).
+    """
     target = Path(target)
     if target.is_file():
-        if target.suffix == ".bak":
-            if (target.with_suffix("")).is_file():
-                os.remove(str(target.with_suffix("")))
-            if delete_baks:
-                os.rename(str(target), str(target.with_suffix("")))
-            else:
-                shutil.copy2(str(target), str(target.with_suffix("")))
-        elif not (target.with_suffix(".bak")).is_file():
-            raise RestoreBackupError(
-                f"Could not find a file '{str(target.with_suffix('.bak'))} to restore. No action taken."
-            )
+        if target.suffix == bak_suffix:
+            bak_file = target
+            non_bak_file = target.with_suffix("")
         else:
-            os.remove(str(target))
-            if delete_baks:
-                os.rename(str(target.with_suffix(".bak")), str(target))
-            else:
-                shutil.copy2(str(target.with_suffix(".bak")), str(target))
-    elif target.is_dir():
+            non_bak_file = target
+            bak_file = target.with_suffix(bak_suffix)
+
+        if not bak_file.is_file():
+            raise RestoreBackupError(
+                f"Could not find a file '{str(bak_file)}' to restore. No action taken."
+            )
+
+        if non_bak_file.is_file():
+            # Delete existing non-BAK file.
+            os.remove(non_bak_file)
+
+        # Either rename BAK file (effectively deleting it) or copy it.
+        if delete_baks:
+            os.rename(str(bak_file), str(non_bak_file))
+        else:
+            shutil.copy2(str(bak_file), str(non_bak_file))
+        return 1  # one file restored
+
+    if target.is_dir():
         count = 0
-        for bak_file in target.glob("*.bak"):
-            restore_bak(bak_file)
-            count += 1
+        for bak_file in target.glob(f"*{bak_suffix}"):
+            count += restore_bak(bak_file)  # recur on file
         if count == 0:
-            raise RestoreBackupError(
-                f"Could not find any '.bak' files to restore in directory '{str(target)}'. No action taken."
-            )
-        else:
-            return count
+            _LOGGER.warning(f"Could not find any '{bak_suffix}' files to restore in directory '{str(target)}'.")
+        return count
 
-
-def find_steam_common_paths():
-    """Not using anymore. Seems to cause 'WinError 87' OSErrors for some people for some drives."""
-    steam_common_paths = []
-    for drive in _get_drives():
-        for arch in {"", " (x86)"}:
-            common_path = Path(drive, f"Program Files{arch}/Steam/steamapps/common/")
-            if common_path.is_dir():
-                steam_common_paths.append(common_path)
-    return steam_common_paths
-
-
-def _get_drives():
-    drives = []
-    bit_mask = ctypes.windll.kernel32.GetLogicalDrives()
-    for letter in string.ascii_uppercase:
-        if bit_mask & 1:
-            drives.append(letter + ":/")
-        bit_mask >>= 1
-    return drives
+    raise RestoreBackupError(
+        f"Could not restore backup for target '{str(target)}' because it is not a file or directory."
+    )
 
 
 def import_arbitrary_module(path: str | Path) -> types.ModuleType:
@@ -153,6 +161,7 @@ def write_json(
 
 
 def get_blake2b_hash(data: bytes | str | Path) -> bytes:
+    """Get BLAKE2b hash of given `bytes` or `str`/`Path` of file."""
     if isinstance(data, (str, Path)):
         file_hash = hashlib.blake2b()
         with Path(data).open("rb") as f:
@@ -161,6 +170,25 @@ def get_blake2b_hash(data: bytes | str | Path) -> bytes:
                 file_hash.update(chunk)
                 chunk = f.read(8192)
         return file_hash.digest()
-    elif isinstance(data, bytes):
+
+    if isinstance(data, bytes):
         return hashlib.blake2b(data).digest()
+
+    raise TypeError(f"Can only get hash of `bytes` or `str`/`Path` of file, not {type(data)}.")
+
+
+def get_blake2b_hash_hex(data: bytes | str | Path) -> str:
+    """Get BLAKE2b hash of given `bytes` or `str`/`Path` of file."""
+    if isinstance(data, (str, Path)):
+        file_hash = hashlib.blake2b()
+        with Path(data).open("rb") as f:
+            chunk = f.read(8192)
+            while chunk:
+                file_hash.update(chunk)
+                chunk = f.read(8192)
+        return file_hash.hexdigest()
+
+    if isinstance(data, bytes):
+        return hashlib.blake2b(data).hexdigest()
+
     raise TypeError(f"Can only get hash of `bytes` or `str`/`Path` of file, not {type(data)}.")

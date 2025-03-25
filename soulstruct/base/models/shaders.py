@@ -15,10 +15,12 @@ from enum import IntEnum
 from pathlib import Path
 
 from soulstruct.exceptions import SoulstructError
-from .base.vertex_array_layout import BaseVertexArrayLayout
 from .matbin import MATBIN, MATBINBND
 from .mtd import MTD, MTDBND
 from soulstruct.utilities.maths import Vector2
+
+if tp.TYPE_CHECKING:
+    from .flver.vertex_array_layout import VertexArrayLayout
 
 _LOGGER = logging.getLogger("soulstruct")
 
@@ -38,6 +40,7 @@ class MatDefSampler:
     uv_scale: Vector2 | None = None  # added from sampler group in later games
     default_texture_path: str = ""
     matbin_texture_path: str = ""  # only used in Elden Ring, where FLVERs only rarely override texture paths
+    is_uv_unused: bool = False  # if True, ignored by `MatDef.get_used_uv_layers()` (but sampler still exists)
 
     @property
     def uv_layer_name(self) -> str:
@@ -51,6 +54,8 @@ class MatDefSampler:
 
     def __repr__(self):
         s = f"Sampler({self.name} -> {self.alias}, UV '{self.uv_layer_name}'"
+        if self.is_uv_unused:
+            s += " <UNUSED>"
         if self.sampler_group > 0:
             s += f", Group {self.sampler_group}"
         if self.uv_scale is not None:
@@ -132,16 +137,16 @@ class MatDef(abc.ABC):
 
     def __post_init__(self):
         if self.shader_stem and not self.shader_category:
-            self.shader_category = self.get_shader_category(self.shader_stem)
+            self.shader_category = self._get_shader_category(self.shader_stem)
 
     @classmethod
-    def get_shader_category(cls, shader_stem: str) -> str:
+    def _get_shader_category(cls, shader_stem: str) -> str:
         """Subclasses can specify how they determine categories from full stems. Default is equal, so every unique
         stem is a category."""
         return shader_stem
 
     @classmethod
-    def from_mtd(cls, mtd: MTD):
+    def from_mtd(cls, mtd: MTD) -> tp.Self:
         """Extract critical MTD information (mainly for generating FLVER vertex array layouts) directly from MTD."""
         matdef = cls(
             shader_stem=mtd.shader_name.split(".")[0],
@@ -168,7 +173,7 @@ class MatDef(abc.ABC):
         return matdef
 
     @classmethod
-    def from_mtd_name(cls, mtd_name: str):
+    def from_mtd_name(cls, mtd_name: str) -> tp.Self:
         """Guess as much information about the shader as possible purely from its name.
 
         Obviously, getting the texture names right is the most important part, but we can also guess whether the shader
@@ -284,7 +289,7 @@ class MatDef(abc.ABC):
     def get_used_uv_layers(self) -> list[IntEnum]:
         """Value-sorted list of unique UV layer enums used by all samplers and any additional, otherwise undetectable
         shader function (e.g. foliage wind animation) specified in `cls.EXTRA_SHADER_UV_LAYERS`."""
-        all_uv_layers = set(sampler.uv_layer for sampler in self.samplers) - {None}
+        all_uv_layers = set(sampler.uv_layer for sampler in self.samplers if not sampler.is_uv_unused) - {None}
         for extra_uv_layer in self.EXTRA_SHADER_UV_LAYERS.get(self.shader_category, []):
             all_uv_layers.add(extra_uv_layer)
         return sorted(all_uv_layers, key=lambda x: x.value)
@@ -292,11 +297,11 @@ class MatDef(abc.ABC):
     # region Abstract Methods/Properties
 
     @abc.abstractmethod
-    def get_map_piece_layout(self) -> BaseVertexArrayLayout:
+    def get_map_piece_layout(self) -> VertexArrayLayout:
         ...
 
     @abc.abstractmethod
-    def get_character_layout(self) -> BaseVertexArrayLayout:
+    def get_non_map_piece_layout(self) -> VertexArrayLayout:
         ...
 
     # endregion
@@ -362,3 +367,7 @@ class MatDef(abc.ABC):
             for sampler in self.samplers
             if (match := pattern.match(sampler.alias if match_alias else sampler.name))
         ]
+
+    @property
+    def stem(self) -> str:
+        return Path(self.name).stem if self.name else ""

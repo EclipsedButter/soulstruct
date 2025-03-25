@@ -6,7 +6,7 @@ __all__ = [
 
 import logging
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from soulstruct.base.maps.msb.msb_entry import *
 from soulstruct.base.maps.msb.regions import *
@@ -22,7 +22,6 @@ if tp.TYPE_CHECKING:
 _LOGGER = logging.getLogger("soulstruct")
 
 
-@dataclass(slots=True)
 class RegionHeaderStruct(MSBHeaderStruct):
     name_offset: long
     _subtype_int: int  # always 0 in Bloodborne
@@ -98,7 +97,6 @@ class RegionHeaderStruct(MSBHeaderStruct):
         entry.shape.to_msb_writer(writer)
 
 
-@dataclass(slots=True)
 class RegionSupertypeData(MSBBinaryStruct):
     entity_id: int
 

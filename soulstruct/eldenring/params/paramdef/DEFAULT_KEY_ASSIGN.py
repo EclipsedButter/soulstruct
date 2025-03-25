@@ -2,16 +2,12 @@ from __future__ import annotations
 
 __all__ = ["DEFAULT_KEY_ASSIGN"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
 from soulstruct.utilities.binary import *
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class DEFAULT_KEY_ASSIGN(ParamRow):
     Priority0: bool = ParamField(
         byte, "priority0:1", DefaultKeyAssignPrioritySuppression, bit_count=1, default=False,

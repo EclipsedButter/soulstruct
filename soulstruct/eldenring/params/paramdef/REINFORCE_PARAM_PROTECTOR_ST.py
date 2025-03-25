@@ -2,16 +2,12 @@ from __future__ import annotations
 
 __all__ = ["REINFORCE_PARAM_PROTECTOR_ST"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
 from soulstruct.utilities.binary import *
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class REINFORCE_PARAM_PROTECTOR_ST(ParamRow):
     PhysicalDefenseMultiplier: float = ParamField(
         float, "physicsDefRate", default=1.0,

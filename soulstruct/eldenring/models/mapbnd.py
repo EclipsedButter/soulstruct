@@ -10,23 +10,20 @@ from soulstruct.containers import BinderVersion, BinderVersion4Info
 from soulstruct.containers.binder_types import FLVERBinder
 from soulstruct.dcx import DCXType
 from soulstruct.games import ELDEN_RING
-from .flver import FLVER
 
 
-@dataclass(slots=True)
-class MAPBND(FLVERBinder[FLVER]):
+class MAPBND(FLVERBinder):
 
-    FLVER_CLASS = FLVER
     DEFAULT_ENTRY_ROOT: tp.ClassVar[str] = f"{ELDEN_RING.interroot_prefix}\\map"
     TPF_ENTRY_ID: tp.ClassVar[int] = -1  # no TPF
     GRASS_ENTRY_ID: tp.ClassVar[int] = 1200
 
     dcx_type: DCXType = ELDEN_RING.default_dcx_type
     version: BinderVersion = BinderVersion.V4
-    v4_info: BinderVersion4Info = field(default_factory=BinderVersion4Info.elden_ring_default)
+    v4_info: BinderVersion4Info = field(default_factory=BinderVersion4Info.eldenring_default)
 
     def get_tpf_entry_path(self, model_stem: str) -> str:
-        raise TypeError("MAPBND does not contain TPF files. These are in `asset/aet` TPFs (yes, just like Assets).")
+        raise TypeError("MAPBND does not contain TPF files. They are found in 'asset/aet' TPFs (next to Asset 'aeg').")
 
     def get_flver_entry_path(self, model_stem: str) -> str:
         map_stem = model_stem[:12]

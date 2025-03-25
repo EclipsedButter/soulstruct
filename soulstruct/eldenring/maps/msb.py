@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-__all__ = ["MSB", "MSBSupertype"]
+__all__ = ["MSB", "MSBSubtypeInfo", "MSBSupertype", "BitSet256", "BitSet1024"]
 
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum, StrEnum
 
 from soulstruct.base.game_types.map_types import MapEntity
 from soulstruct.base.maps.msb import MSB as _BaseMSB, MSBEntryList, MSBEntry
 from soulstruct.base.maps.msb.enums import BaseMSBSubtype
-from soulstruct.base.maps.msb.utils import MSBSubtypeInfo
+from soulstruct.base.maps.msb.utils import MSBSubtypeInfo, BitSet256, BitSet1024
 from soulstruct.utilities.binary import *
 from soulstruct.utilities.misc import IDList
 
@@ -22,9 +22,8 @@ from .routes import *
 from .parts import *
 
 
-@dataclass(slots=True)
 class MSBEntrySuperlistHeader(BinaryStruct):
-    _version: int = field(init=False, **Binary(asserted=73))
+    _version: int = binary(asserted=73, init=False)
     entry_offset_count: int
     name_offset: long
 
@@ -106,7 +105,7 @@ MSB_ENTRY_SUBTYPES = {
         MSBPartSubtype.Character: MSBSubtypeInfo(MSBCharacter, "characters"),
         MSBPartSubtype.PlayerStart: MSBSubtypeInfo(MSBPlayerStart, "player_starts"),
         MSBPartSubtype.Collision: MSBSubtypeInfo(MSBCollision, "collisions"),
-        MSBPartSubtype.UnusedAsset: MSBSubtypeInfo(MSBUnusedAsset, "unused_assets"),
+        MSBPartSubtype.DummyAsset: MSBSubtypeInfo(MSBDummyAsset, "dummy_assets"),
         MSBPartSubtype.DummyCharacter: MSBSubtypeInfo(MSBDummyCharacter, "dummy_characters"),
         MSBPartSubtype.ConnectCollision: MSBSubtypeInfo(MSBConnectCollision, "connect_collisions"),
     },
@@ -119,8 +118,7 @@ def empty(subtype_enum: BaseMSBSubtype) -> tp.Callable[[], MSBEntryList]:
     return lambda: MSBEntryList((), supertype=supertype, entry_class=subtype_info.entry_class)
 
 
-@dataclass(slots=True, kw_only=True)
-class MSB(_BaseMSB):
+class MSB(_BaseMSB[MSBModel, MSBEvent, MSBRegion, MSBPart]):
     SUPERTYPE_LIST_HEADER: tp.ClassVar[type[BinaryStruct]] = MSBEntrySuperlistHeader
     MSB_SUPERTYPE_ENUM: tp.ClassVar[type[StrEnum]] = MSBSupertype
     MSB_ENTRY_SUPERTYPES: tp.ClassVar[dict[str, type[MSBEntry]]] = {
@@ -131,6 +129,14 @@ class MSB(_BaseMSB):
         MSBSupertype.LAYERS: None,  # empty supertype (no known subtypes)
         MSBSupertype.PARTS: MSBPart,
     }
+    MSB_SUPERTYPE_SUBTYPE_ENUMS: tp.ClassVar[dict[str, type[BaseMSBSubtype]]] = {
+        MSBSupertype.MODELS: MSBModelSubtype,
+        MSBSupertype.EVENTS: MSBEventSubtype,
+        MSBSupertype.REGIONS: MSBRegionSubtype,
+        MSBSupertype.ROUTES: MSBRouteSubtype,
+        MSBSupertype.LAYERS: None,  # empty supertype (no known subtypes)
+        MSBSupertype.PARTS: MSBPartSubtype,
+    }
     MSB_ENTRY_SUBTYPES: tp.ClassVar[dict[str, dict[BaseMSBSubtype, MSBSubtypeInfo]]] = MSB_ENTRY_SUBTYPES
     MSB_ENTRY_SUBTYPE_OFFSETS: tp.ClassVar[dict[str, int]] = {
         "MODEL_PARAM_ST": 8,
@@ -140,6 +146,11 @@ class MSB(_BaseMSB):
         "LAYER_PARAM_ST": -1,  # empty supertype (no known subtypes)
         "PARTS_PARAM_ST": 12,
     }
+    MODEL_CLASS: tp.ClassVar[type[MSBModel]] = MSBModel
+    EVENT_CLASS: tp.ClassVar[type[MSBEvent]] = MSBEvent
+    REGION_CLASS: tp.ClassVar[type[MSBRegion]] = MSBRegion
+    PART_CLASS: tp.ClassVar[type[MSBPart]] = MSBPart
+    ROUTE_CLASS: tp.ClassVar[type[MSBRoute]] = MSBRoute
     ENTITY_GAME_TYPES: tp.ClassVar[dict[str, MapEntity]] = {}  # TODO for Elden Ring
 
     HAS_HEADER: tp.ClassVar[bool] = True
@@ -232,7 +243,7 @@ class MSB(_BaseMSB):
     collisions: MSBEntryList[MSBCollision] = field(default_factory=empty(MSBPartSubtype.Collision))
     connect_collisions: MSBEntryList[MSBConnectCollision] = field(
         default_factory=empty(MSBPartSubtype.ConnectCollision))
-    unused_assets: MSBEntryList[MSBUnusedAsset] = field(default_factory=empty(MSBPartSubtype.UnusedAsset))
+    dummy_assets: MSBEntryList[MSBDummyAsset] = field(default_factory=empty(MSBPartSubtype.DummyAsset))
     dummy_characters: MSBEntryList[MSBDummyCharacter] = field(default_factory=empty(MSBPartSubtype.DummyCharacter))
 
     # TODO: Need to check all part `model_instance_id` values are unique.

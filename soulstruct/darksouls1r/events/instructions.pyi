@@ -18,6 +18,8 @@ __all__ = [
     "END",
     "RESTART",
     "RunEvent",
+    "enable_debug",
+    "disable_debug",
     # Condition groups:
     "OR_7",
     "OR_6",
@@ -779,6 +781,20 @@ def Await(condition):
     
     You can also use the built-in 'await' Python keyword, but Python linters might complain about this (e.g. because
     you haven't declared your function with `async def` or because of the type being passed to `await`).
+    """
+    ...
+
+
+def enable_debug():
+    """
+    Enables EVS debugging for the rest of the EVS file. Disable with `disable_debug()`.
+    """
+    ...
+
+
+def disable_debug():
+    """
+    Disables EVS debugging for the rest of the EVS file. Enable with `enable_debug()`.
     """
     ...
 
@@ -3725,7 +3741,7 @@ def ForceAnimation_Unknown_2003_46(
     loop: bool | int,
     wait_for_completion: bool | int,
     skip_transition: bool | int,
-    unk1: int,
+    unk1: float,
 ):
     """
     TODO
@@ -3943,6 +3959,8 @@ def FaceEntity(character: Character | int, target_entity: Object | Character | R
 def SetInvincibilityState(character: Character | int, state: bool | int):
     """
     Character cannot take damage or die.
+
+    NOTE: Disabling invincibility will also disable immortality.
     """
 
 

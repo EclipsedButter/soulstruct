@@ -17,7 +17,6 @@ if tp.TYPE_CHECKING:
 _LOGGER = logging.getLogger("soulstruct")
 
 
-@dataclass(slots=True)
 class TalkDirectory(GameFileMapDirectory, abc.ABC):
     """Directory containing `TalkESDBND` files."""
 
@@ -55,7 +54,10 @@ class TalkDirectory(GameFileMapDirectory, abc.ABC):
                     files[file_stem] = cls.FILE_CLASS.from_path(file_path)
                     all_map_stems.remove(file_stem)
                     continue
-            _LOGGER.warning(f"Ignoring unexpected file in `{cls.__name__}` directory: {file_path.name}")
+            if file_path.is_dir() and file_path.name != "__pycache__":
+                _LOGGER.warning(f"Ignoring unexpected folder in `{cls.__name__}` directory: {file_path.name}")
+            elif file_path.is_file():
+                _LOGGER.warning(f"Ignoring unexpected file in `{cls.__name__}` directory: {file_path.name}")
 
         if all_map_stems:
             _LOGGER.warning(f"Could not find some files in `{cls.__name__}` directory: {', '.join(all_map_stems)}")

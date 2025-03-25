@@ -2,8 +2,6 @@ from __future__ import annotations
 
 __all__ = ["SHOP_LINEUP_PARAM"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
@@ -12,8 +10,6 @@ from soulstruct.utilities.binary import *
 from .dynamics import ShopReference
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class SHOP_LINEUP_PARAM(ParamRow):
     ItemID: int = ParamField(
         int, "equipId", default=0, dynamic_callback=ShopReference(),

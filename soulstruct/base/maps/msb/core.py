@@ -8,7 +8,7 @@ import logging
 import re
 import struct
 import typing as tp
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from enum import Enum, StrEnum
 from pathlib import Path
 
@@ -19,7 +19,6 @@ from soulstruct.utilities.binary import *
 from soulstruct.utilities.files import write_json
 from soulstruct.utilities.maths import Vector2, Vector3, Vector4
 from soulstruct.utilities.misc import IDList
-from soulstruct.utilities.text import PY_NAME_RE
 from .region_shapes import RegionShape
 
 from .msb_entry import MSBEntry
@@ -28,7 +27,7 @@ from .events import BaseMSBEvent
 from .models import BaseMSBModel
 from .parts import BaseMSBPart
 from .regions import BaseMSBRegion
-from .utils import GroupBitSet, MSBSubtypeInfo
+from .utils import BitSet, MSBSubtypeInfo
 
 if tp.TYPE_CHECKING:
     from .enums import BaseMSBSubtype
@@ -37,14 +36,19 @@ if tp.TYPE_CHECKING:
 _LOGGER = logging.getLogger("soulstruct")
 
 
-MAP_NAME_RE = re.compile(r"m(\d\d)_(\d\d)_.*")
+MAP_NAME_RE = re.compile(r"m(\d\d)_(\d\d)_(\d\d)_(\d\d)")
 
 # NOTE: Completely absent in DS1 and earlier.
 MSB_HEADER_BYTES = struct.pack("4sII??BB", b"MSB ", 1, 16, False, False, 1, 255)
 
 
-@dataclass(slots=True, kw_only=True)
-class MSB(GameFile, abc.ABC):
+MSB_MODEL_T = tp.TypeVar("MSB_MODEL_T", bound=BaseMSBModel)
+MSB_EVENT_T = tp.TypeVar("MSB_EVENT_T", bound=BaseMSBEvent)
+MSB_REGION_T = tp.TypeVar("MSB_REGION_T", bound=BaseMSBRegion)
+MSB_PART_T = tp.TypeVar("MSB_PART_T", bound=BaseMSBPart)
+
+
+class MSB(GameFile, tp.Generic[MSB_MODEL_T, MSB_EVENT_T, MSB_REGION_T, MSB_PART_T], abc.ABC):
     """Handles MSB ('MapStudio') data. Subclassed by each game.
 
     TODO: Update docstring.
@@ -78,8 +82,9 @@ class MSB(GameFile, abc.ABC):
         def default(self, obj):
             if isinstance(obj, RegionShape):
                 return obj.to_json_dict()
-            if isinstance(obj, (Vector2, Vector3, Vector4, GroupBitSet)):
+            if isinstance(obj, (Vector2, Vector3, Vector4, BitSet)):
                 return repr(obj)
+            return None  # not handled
 
     EXT: tp.ClassVar[str] = ".msb"
 
@@ -94,13 +99,21 @@ class MSB(GameFile, abc.ABC):
     MSB_SUPERTYPE_ENUM: tp.ClassVar[type[StrEnum]]
     # Dictionary mapping MSB supertype name enums to their base types, in the order they appear in the MSB.
     MSB_ENTRY_SUPERTYPES: tp.ClassVar[dict[str, type[MSBEntry]]]
+    # Dictionary mapping MSB supertype name enums to their subtype enum types.
+    MSB_SUPERTYPE_SUBTYPE_ENUMS: tp.ClassVar[dict[str, type[BaseMSBSubtype]]]
     # Maps MSB entry supertype names (e.g. 'POINT_PARAM_ST') to dicts that map subtype enum names to subtype info.
     MSB_ENTRY_SUBTYPES: tp.ClassVar[dict[str, dict[BaseMSBSubtype, MSBSubtypeInfo]]]
     # Maps MSB entry supertype names (parts, etc.) to the relative offsets of their subtype enums, which we check in
     # advance to determine which `MSBEntry` subclass to use.
     MSB_ENTRY_SUBTYPE_OFFSETS: tp.ClassVar[dict[str, int]]
+    # Entry classes. Game-specific subclasses must define these, and may add more (e.g. `ROUTE_CLASS`).
+    MODEL_CLASS: tp.ClassVar[type[BaseMSBModel]]
+    EVENT_CLASS: tp.ClassVar[type[BaseMSBEvent]]
+    REGION_CLASS: tp.ClassVar[type[BaseMSBRegion]]
+    PART_CLASS: tp.ClassVar[type[BaseMSBPart]]
     # Maps entry subtype names ("characters", "sounds", etc.) to their corresponding `BaseGameType`, if applicable.
     ENTITY_GAME_TYPES: tp.ClassVar[dict[str, type[MapEntity]]]
+
     # Cached when first accessed. Maps subtype list names, e.g. 'map_pieces', to the list. Immutable.
     _SUBTYPE_LIST_NAMES: tp.ClassVar[tuple[str, ...]] = None
 
@@ -122,8 +135,8 @@ class MSB(GameFile, abc.ABC):
         """Unpack an MSB from the given reader."""
         
         if cls.IS_BIG_ENDIAN:
-            reader.default_byte_order = ByteOrder.BigEndian
-        elif reader.default_byte_order == ByteOrder.BigEndian:
+            reader.byte_order = ByteOrder.BigEndian
+        elif reader.byte_order == ByteOrder.BigEndian:
             _LOGGER.warning(
                 "This MSB class has `IS_BIG_ENDIAN=False`, but as the reader is set to big-endian, that will be used."
             )
@@ -159,7 +172,7 @@ class MSB(GameFile, abc.ABC):
         for supertype_name in cls.MSB_ENTRY_SUPERTYPES:
             entry_lists.pop(supertype_name)
 
-        return cls(byte_order=reader.default_byte_order, **entry_lists)
+        return cls(byte_order=reader.byte_order, **entry_lists)
 
     @classmethod
     def _unpack_supertype_list(
@@ -253,23 +266,50 @@ class MSB(GameFile, abc.ABC):
                 supertype_list.extend(subtype_list)
         return supertype_list
 
-    def get_models(self) -> IDList[BaseMSBModel]:
+    def get_models(self) -> IDList[MSB_MODEL_T]:
         # noinspection PyTypeChecker
         return self.get_supertype_list("MODEL_PARAM_ST")
 
-    def get_events(self) -> IDList[BaseMSBEvent]:
+    def get_events(self) -> IDList[MSB_EVENT_T]:
         # noinspection PyTypeChecker
         return self.get_supertype_list("EVENT_PARAM_ST")
 
-    def get_regions(self) -> IDList[BaseMSBRegion]:
+    def get_regions(self) -> IDList[MSB_REGION_T]:
         # noinspection PyTypeChecker
         return self.get_supertype_list("POINT_PARAM_ST")
 
-    def get_parts(self) -> IDList[BaseMSBPart]:
+    def get_parts(self) -> IDList[MSB_PART_T]:
         # noinspection PyTypeChecker
-        return self.get_supertype_list("PARTS_PARAM_ST")    
+        return self.get_supertype_list("PARTS_PARAM_ST")
 
-    def get_regions_with_shape(self, shape_name: str) -> list[BaseMSBRegion]:
+    def get_supertype_subtype_dict(self, supertype: str) -> dict[BaseMSBSubtype, MSBEntryList]:
+        """Construct a dictionary mapping each subtype enum within the given supertype to the true lists of entries.
+
+        NOTE: The dictionary values are the actual MSB entry lists, not copies.
+        """
+        supertype = self.resolve_supertype_name(supertype)
+        subtype_dict = {}
+        for subtype_enum, subtype_info in self.MSB_ENTRY_SUBTYPES[supertype].items():
+            subtype_dict[subtype_enum] = getattr(self, subtype_info.subtype_list_name)
+        return subtype_dict
+
+    def get_models_dict(self) -> dict[BaseMSBSubtype, MSBEntryList[MSB_MODEL_T]]:
+        # noinspection PyTypeChecker
+        return self.get_supertype_subtype_dict("MODEL_PARAM_ST")
+
+    def get_events_dict(self) -> dict[BaseMSBSubtype, MSBEntryList[MSB_EVENT_T]]:
+        # noinspection PyTypeChecker
+        return self.get_supertype_subtype_dict("EVENT_PARAM_ST")
+
+    def get_regions_dict(self) -> dict[BaseMSBSubtype, MSBEntryList[MSB_REGION_T]]:
+        # noinspection PyTypeChecker
+        return self.get_supertype_subtype_dict("POINT_PARAM_ST")
+
+    def get_parts_dict(self) -> dict[BaseMSBSubtype, MSBEntryList[MSB_PART_T]]:
+        # noinspection PyTypeChecker
+        return self.get_supertype_subtype_dict("PARTS_PARAM_ST")
+
+    def get_regions_with_shape(self, shape_name: str) -> list[MSB_REGION_T]:
         """Find all regions with given shape name. Not case-sensitive, but doesn't work with plurals."""
         name = shape_name.lower()
         return [
@@ -298,20 +338,38 @@ class MSB(GameFile, abc.ABC):
             names = set()
             for entry in entry_lists[supertype_name]:
                 if entry.name in names:
-                    _LOGGER.warning(f"Duplicate '{supertype_name}' name in MSB: {entry.name}")
+                    _LOGGER.warning(
+                        f"Duplicate '{supertype_name}' name in MSB {self.path_minimal_stem}: '{entry.name}'"
+                    )
                 else:
                     names.add(entry.name)
 
         # Get model instance counts. We collect them all here at once to save on multiple iterations.
+        # We also confirm that 'c0000_0000' is an `MSBPlayerStart` and not an `MSBCharacter`. (Valid for all games.)
+        player_found = False
         model_instance_counts = {}
         for part in entry_lists["PARTS_PARAM_ST"]:
-            part: BaseMSBPart
+            part: MSB_PART_T
             if part.model is None:
                 continue
             if part.model.name in model_instance_counts:
                 model_instance_counts[part.model.name] += 1
             else:
                 model_instance_counts[part.model.name] = 1
+
+            if part.name == "c0000_0000":
+                if part.SUBTYPE_ENUM.name == "PlayerStart":
+                    player_found = True
+                else:
+                    _LOGGER.warning(
+                        f"MSB entry 'c0000_0000' should always be an `MSBPlayerStart`, not an `{part.cls_name}`."
+                    )
+
+        if not player_found:
+            # TODO: This warning is probably too aggressive for Elden Ring large/medium tiles?
+            _LOGGER.warning(
+                f"MSB entry 'c0000_0000' is missing from MSB '{self.path_name}'. It should be an `MSBPlayerStart`."
+            )
 
         # TODO: use writer.long_varints to communicate encoding?
         writer = BinaryWriter(byte_order=self.byte_order, long_varints=self.LONG_VARINTS)
@@ -341,7 +399,7 @@ class MSB(GameFile, abc.ABC):
                 subtype_index = entry_lists[subtype_name].index(entry)
                 if supertype_name == "MODEL_PARAM_ST":
                     # Models also need their instance count passed in.
-                    entry: BaseMSBModel
+                    entry: MSB_MODEL_T
                     instance_count = model_instance_counts.get(entry.name, 0)
                     if instance_count == 0 and entry.name not in {"c0000", "c1000"}:
                         _LOGGER.warning(f"Model '{entry.name}' is not used by any parts in MSB '{self.path_name}'.")
@@ -353,15 +411,17 @@ class MSB(GameFile, abc.ABC):
                             f"  Entry: {entry}"
                         )
                         raise
-                else:
-                    try:
-                        entry.to_msb_writer(writer, supertype_index, subtype_index, entry_lists)
-                    except Exception as ex:
-                        _LOGGER.error(
-                            f"Exception occurred while trying to write entry '{entry.name}': {ex}.\n"
-                            f"  Entry: {entry}"
-                        )
-                        raise
+                    continue
+
+                # Non-Models:
+                try:
+                    entry.to_msb_writer(writer, supertype_index, subtype_index, entry_lists)
+                except Exception as ex:
+                    _LOGGER.error(
+                        f"Exception occurred while trying to write entry '{entry.name}': {ex}.\n"
+                        f"  Entry: {entry}"
+                    )
+                    raise
 
             if supertype_name == last_supertype_name:
                 writer.fill("next_list_offset", 0, obj=supertype_list)  # zero offset
@@ -373,6 +433,16 @@ class MSB(GameFile, abc.ABC):
     @abc.abstractmethod
     def pack_supertype_name(self, writer: BinaryWriter, supertype_name: str):
         """Differs between versions slightly."""
+
+    # region Auto Model Creation
+
+    def auto_model(self, msb_part: BaseMSBPart, model_name: str, map_stem="") -> MSB_MODEL_T | None:
+        """Not implemented/available by default. Games must implement (WIP)."""
+        raise NotImplemented(
+            f"Auto model creation is not implemented for this game's MSB class ({self.get_game().name})."
+        )
+
+    # endregion
 
     def find_entry_name(
         self, name: str, supertypes: tp.Iterable[str] = (), subtypes: tp.Iterable[str] = ()
@@ -414,7 +484,7 @@ class MSB(GameFile, abc.ABC):
             raise ValueError(f"Found entries of multiple types with name '{name}': {list(results)}")
         return results[0]
 
-    def find_model_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> BaseMSBModel:
+    def find_model_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> MSB_MODEL_T:
         """Get `MSBModel` with name `name` that is one of the given `entry_subtypes` or any type by default.
 
         Raises a `KeyError` if the name cannot be found, and a `ValueError` if multiple entries are found.
@@ -424,7 +494,7 @@ class MSB(GameFile, abc.ABC):
         # noinspection PyTypeChecker
         return self.find_entry_name(name, supertypes=["MODEL_PARAM_ST"], subtypes=subtypes)
 
-    def find_event_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> BaseMSBEvent:
+    def find_event_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> MSB_EVENT_T:
         """Get `MSBEvent` with name `name` that is one of the given `entry_subtypes` or any type by default.
 
         Raises a `KeyError` if the name cannot be found, and a `ValueError` if multiple entries are found.
@@ -434,7 +504,7 @@ class MSB(GameFile, abc.ABC):
         # noinspection PyTypeChecker
         return self.find_entry_name(name, supertypes=["EVENT_PARAM_ST"], subtypes=subtypes)
 
-    def find_region_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> BaseMSBRegion:
+    def find_region_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> MSB_REGION_T:
         """Get `MSBRegion` with name `name` that is one of the given `entry_subtypes` or any type by default.
 
         Raises a `KeyError` if the name cannot be found, and a `ValueError` if multiple entries are found.
@@ -444,7 +514,7 @@ class MSB(GameFile, abc.ABC):
         # noinspection PyTypeChecker
         return self.find_entry_name(name, supertypes=["POINT_PARAM_ST"], subtypes=subtypes)
 
-    def find_part_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> BaseMSBPart:
+    def find_part_name(self, name: str | Enum, subtypes: tp.Iterable[str] = ()) -> MSB_PART_T:
         """Get `MSBPart` with name `name` that is one of the given `entry_subtypes` or any type by default.
 
         Raises a `KeyError` if the name cannot be found, and a `ValueError` if multiple entries are found.
@@ -464,7 +534,7 @@ class MSB(GameFile, abc.ABC):
                 self.reattach_entry_references(entry, warn_reattachments, backup_converter)
 
     def reattach_entry_references(
-        self, entry: BaseMSBPart | BaseMSBEvent,
+        self, entry: MSB_PART_T | MSB_EVENT_T,
         warn_reattachments=False,
         backup_converter: tp.Callable[[str], str] = None,
     ):
@@ -559,7 +629,7 @@ class MSB(GameFile, abc.ABC):
         NOTE: No MSB header information needs to be recorded. Just the version info.
         """
         entry_lists = self.get_all_subtype_lists()
-        msb_dict = {"version": self.get_version_dict()}  # type: dict[str, dict[str, tp.Any]]
+        msb_dict = {"version": self.get_version_dict()}  # type: dict[str, tp.Any]
         for subtype_list in entry_lists:
             for supertype_name in self.MSB_ENTRY_SUPERTYPES:
                 if subtype_list.supertype == supertype_name:
@@ -605,7 +675,8 @@ class MSB(GameFile, abc.ABC):
                 continue
             subtype_dict = data[supertype_name]
             for subtype_enum_name, subtype_list in subtype_dict.items():
-                subtype_info = cls.MSB_ENTRY_SUBTYPES[supertype_name][subtype_enum_name]
+                subtype_enum = cls.MSB_SUPERTYPE_SUBTYPE_ENUMS[supertype_name][subtype_enum_name]
+                subtype_info = cls.MSB_ENTRY_SUBTYPES[supertype_name][subtype_enum]  # TODO: ignore PyCharm glitch...
                 entries = []
                 subtype_deferred = deferred_refs[subtype_info.subtype_list_name] = []
                 for entry_dict in subtype_list:
@@ -663,9 +734,7 @@ class MSB(GameFile, abc.ABC):
             ref_list_name = field_ref["subtype_list_name"]
         else:
             # Get ref list name from supertype and subtype enum values.
-            entry_class = cls.MSB_ENTRY_SUPERTYPES[ref_supertype]
-            # noinspection PyUnresolvedReferences
-            subtype_enum = entry_class.SUBTYPE_ENUM[ref_subtype]
+            subtype_enum = cls.MSB_SUPERTYPE_SUBTYPE_ENUMS[ref_supertype][ref_subtype]
             ref_list_name = cls.MSB_ENTRY_SUBTYPES[ref_supertype][subtype_enum].subtype_list_name
 
         try:
@@ -763,11 +832,6 @@ class MSB(GameFile, abc.ABC):
         msb_list = getattr(self, msb_list_name)  # type: MSBEntryList
         msb_list.append(msb_entry)
 
-    def set_auto_references(self):
-        """Some MSB subclasses have inter-entry references that are easily automated, such as `MSBCollision` references
-        to `MSBEnvironmentEvent` instances that already reference that same Collision."""
-        pass
-
     def get_repeated_entity_ids(self) -> dict[str, IDList[MSBEntry]]:
         """Scans all entries for repeated `entity_id` fields PER SUPERTYPE, not subtype.
 
@@ -856,125 +920,6 @@ class MSB(GameFile, abc.ABC):
         """Iterate over all subtype lists."""
         return iter(self.get_all_subtype_lists())
 
-    def write_enums_module(
-        self,
-        module_path: str | Path = None,
-        area_id: int = None,
-        block_id: int = None,
-        # TODO: cc_id and dd_id for Elden Ring
-        append_to_module: str = ""
-    ):
-        """Generates a '{mXX_YY}_enums.py' file with entity IDs for import into EVS scripts.
-
-        If `append_to_module` text is given, all map enums will be appended to it.
-        """
-        if module_path is None:
-            if self.path is None:
-                raise ValueError("Cannot auto-detect MSB entities `module_path` (MSB path not known).")
-            module_path = self.path.parent / f"{self.path.name.split('.')[0]}_enums.py"
-        else:
-            module_path = Path(module_path)
-
-        module_path.parent.mkdir(parents=True, exist_ok=True)
-
-        auto_map_base_id = None
-        if area_id is None and block_id is None:
-            if self.path:
-                map_name_match = MAP_NAME_RE.match(self.path.name)
-                if map_name_match:
-                    area_id, block_id = map(int, map_name_match.group(1, 2))
-                    auto_map_base_id = area_id * 100000 + block_id * 10000
-                else:
-                    _LOGGER.warning(
-                        f"Could not auto-detect map area and block (cannot parse from MSB path: {self.path}). "
-                        "Auto-enumerator functions will be commented out; replace the {MAP_RANGE_START} string in each "
-                        "one and uncomment to use."
-                    )
-            else:
-                _LOGGER.warning(
-                    "Could not auto-detect map area and block (MSB path not known). Auto-enumerator functions will be"
-                    "commented out; replace the {MAP_RANGE_START} string in each one and uncomment to use."
-                )
-        elif area_id is not None and block_id is not None:
-            # TODO: Is this still right for Elden Ring? For legacy dungeons, at least.
-            auto_map_base_id = area_id * 100000 + block_id * 10000
-        else:
-            raise ValueError("Both `area_id` and `block_id` must be given, or neither for automatic detection.")
-
-        trailing_digit_re = re.compile(r"(.*?)(\d+)")
-
-        def sort_key(key_value) -> tuple[str, int]:
-            """Sort trailing digits properly."""
-            _, value_ = key_value
-            if match := trailing_digit_re.match(value_.name):
-                return match.group(1), int(match.group(2))
-            return value_.name, 0
-
-        module_path = Path(module_path)
-
-        game_types_import = f"from soulstruct.{self.get_game().submodule_name}.game_types import *\n"
-        if append_to_module:
-            if game_types_import not in append_to_module:
-                # Add game type start import to module. (Very rare that it wouldn't already be there.)
-                first_class_def_index = append_to_module.find("\nclass")
-                if first_class_def_index != -1:
-                    append_to_module = append_to_module.replace("\nclass", game_types_import + "\n\nclass", 1)
-                else:
-                    append_to_module += game_types_import
-            module_text = append_to_module.rstrip("\n") + "\n"
-        else:
-            module_text = game_types_import
-
-        for subtype_name, subtype_game_type in self.ENTITY_GAME_TYPES.items():
-            class_name = subtype_game_type.get_msb_entry_supertype_subtype(pluralized_subtype=True)[1]
-            class_text = ""
-            subtype_list = getattr(self, subtype_name)
-            entity_id_dict = subtype_list.get_entity_id_dict()
-            sorted_entity_id_dict = {
-                k: v for k, v in sorted(entity_id_dict.items(), key=sort_key)
-            }
-            last_is_non_ascii = False
-            for entity_id, entry in sorted_entity_id_dict.items():
-                # name = entry.name.replace(" ", "_")
-                try:
-                    name = entry.name.encode("utf-8").decode("ascii")
-                except UnicodeDecodeError:
-                    if not last_is_non_ascii:
-                        class_text += f"    # TODO: Non-ASCII name characters.\n"
-                        last_is_non_ascii = True
-                    class_text += f"    # {entry.name} = {entity_id}"
-                else:
-                    last_is_non_ascii = False
-                    if not PY_NAME_RE.match(name):
-                        class_text += f"    # TODO: Invalid Python variable name.\n    # {entry.name} = {entity_id}"
-                    else:
-                        class_text += f"    {name} = {entity_id}"
-                if entry.description:
-                    class_text += f"  # {entry.description}"
-                class_text += "\n"
-            if class_text:
-                game_type_name = subtype_game_type.__name__
-                if auto_map_base_id is not None and subtype_game_type in self.ID_RANGES:
-                    range_kwargs = self.ID_RANGES[subtype_game_type](auto_map_base_id)
-                    try:
-                        first_value = range_kwargs["first_value"]
-                        last_value = range_kwargs["last_value"]
-                    except KeyError:
-                        _LOGGER.warning(
-                            f"`ID_RANGES` callback for {game_type_name} did not return `first_value` and `last_value`."
-                        )
-                        class_def = f"\n\nclass {class_name}({game_type_name}):\n"
-                    else:
-                        class_def = f"\n\nclass {class_name}({game_type_name}, {first_value=}, {last_value=}):\n"
-                else:
-                    class_def = f"\n\nclass {class_name}({game_type_name}):\n"
-                class_def += f"    \"\"\"`{game_type_name}` entity IDs for MSB and EVS use.\"\"\"\n\n"
-                class_text = class_def + class_text
-                module_text += class_text
-
-        with module_path.open("w", encoding="utf-8") as f:
-            f.write(module_text)
-
     def get_or_create_model(
         self,
         model_subtype_name: str,
@@ -982,10 +927,12 @@ class MSB(GameFile, abc.ABC):
         sib_path="",
         map_stem="",
         replace_existing=False,
-    ) -> BaseMSBModel:
+    ) -> MSB_MODEL_T:
         """Get or create a model of the given subtype, with the given name and SIB path.
 
         Specify `replace_existing` if you want to replace an existing model with the same name, e.g. with a new SIB.
+
+        TODO: Would be great to be able to infer the return type from the subtype name (or another arg).
         """
         for subtype_name, part_info in self.MSB_ENTRY_SUBTYPES["PARTS_PARAM_ST"].items():
             # Redirect part subtype names to their corresponding model subtype names.
@@ -1000,7 +947,7 @@ class MSB(GameFile, abc.ABC):
             if not replace_existing:
                 return model
         except KeyError:
-            model = self[subtype_list_name].new(name=name, sib_path=sib_path)  # type: BaseMSBModel
+            model = self[subtype_list_name].new(name=name, sib_path=sib_path)  # type: MSB_MODEL_T
             if not model.sib_path:
                 if map_stem:  # prevents empty `map_stem` from being formatted
                     model.set_auto_sib_path(map_stem=map_stem)
@@ -1028,6 +975,19 @@ class MSB(GameFile, abc.ABC):
             except KeyError:
                 return False
         return True
+
+    def remove_unused_models(self) -> list[str]:
+        """Remove any models not used by any parts in the MSB. Returns a list of removed model names."""
+        used_models = IDList()
+        for part in self.get_parts():
+            if part.model is not None and part.model not in used_models:
+                used_models.append(part.model)
+        removed_model_names = []
+        for model in self.get_models():  # transient supertype list
+            if model not in used_models:
+                self.remove_entry(model)
+                removed_model_names.append(model.name)
+        return removed_model_names
 
     @classmethod
     def get_display_type_dict(cls) -> dict[str, tuple[BaseMSBSubtype, ...]]:
@@ -1057,5 +1017,5 @@ class MSB(GameFile, abc.ABC):
         if self.path is None:
             raise ValueError("Cannot get map stem from MSB path because it is not known.")
         if map_name_match := MAP_NAME_RE.match(self.path.name):
-            return map_name_match.group(0)
+            return map_name_match.group(0)  # full match
         raise ValueError(f"Could not parse map stem from MSB path name: {self.path}")

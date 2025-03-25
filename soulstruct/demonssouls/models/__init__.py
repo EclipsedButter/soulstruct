@@ -1,11 +1,18 @@
 __all__ = [
-    "FLVER0",
+    "FLVER",
+    "MTD",
+    "MTDBND",
+
     "CHRBND",
     "OBJBND",
     "PARTSBND",
+
+    "MatDef",
 ]
 
-from .flver import FLVER0
+from soulstruct.base.models.flver import FLVER
+from soulstruct.base.models.mtd import MTD, MTDBND
 from .chrbnd import CHRBND
 from .objbnd import OBJBND
 from .partsbnd import PARTSBND
+from .shaders import MatDef

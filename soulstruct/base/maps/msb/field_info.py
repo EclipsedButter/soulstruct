@@ -48,46 +48,13 @@ FIELD_INFO = {
     "REGIONS[rotate]": (
         "Rotate", "Euler angles for region rotation around its local X, Y, and Z axes.",
     ),
+    "REGIONS[shape]": (
+        "Shape",
+        "Shape of region, which vary in used dimensions. Width, height, and depth correspond to game X, Y, and Z.",
+    ),
     "REGIONS[entity_id]": (
         "Entity ID",
         "Entity ID for region, for referring to it in EMEVD event scripts.",
-    ),
-    "circles[radius]": (
-        "Radius",
-        "Radius (in xy-plane) of circular region.",
-    ),
-    "Sphere[radius]": (
-        "Radius",
-        "Radius of sphere-shaped region.",
-    ),
-    "Cylinder[radius]": (
-        "Radius",
-        "Radius (in xz-plane) of cylinder-shaped region.",
-    ),
-    "Cylinder[height]": (
-        "Height",
-        "Height (along y-axis) of cylinder-shaped region.",
-    ),
-    "rects[width]": (
-        "Width",
-        "Width (along x-axis) of rectangle-shaped region.",
-    ),
-    "rects[height]": (
-        "Height",
-        "Height (along y-axis) of rectangle-shaped region.",
-    ),
-
-    "Box[width]": (
-        "Width",
-        "Width (along x-axis) of box-shaped region.",
-    ),
-    "Box[depth]": (
-        "Depth",
-        "Depth (along z-axis) of box-shaped region.",
-    ),
-    "Box[height]": (
-        "Height",
-        "Height (along y-axis) of box-shaped region.",
     ),
 
     "Object[break_term]": (
@@ -112,11 +79,11 @@ FIELD_INFO = {
         "Set Main Object Structure Bools",
         "Unknown.",
     ),
-    "Object[unk_x0e_x10]": (
+    "Object[unk_x0e]": (
         "Unknown [0e-10]",
         "Unknown.",
     ),
-    "Object[unk_x10_x14]": (
+    "Object[unk_x10]": (
         "Unknown [10-14]",
         "Unknown.",
     ),
@@ -403,7 +370,7 @@ FIELD_INFO = {
 
     "ConnectCollision[collision]": (
         "Collision Part Name",
-        "Collision part that triggers this map connection.",
+        "Collision part that triggers this connect collision.",
     ),
     "ConnectCollision[connected_map_id]": (
         "Map ID",
@@ -660,7 +627,7 @@ FIELD_INFO = {
         "Message Text ID",
         "Soapstone Messages text ID shown when soapstone message is examined.",
     ),
-    "Message[unk_x02_x04]": (
+    "Message[unk_x02]": (
         "Unknown [02-04]",
         "Unknown. Often set to 2.",
     ),

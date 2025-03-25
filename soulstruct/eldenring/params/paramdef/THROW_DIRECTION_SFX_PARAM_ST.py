@@ -2,16 +2,12 @@ from __future__ import annotations
 
 __all__ = ["THROW_DIRECTION_SFX_PARAM_ST"]
 
-from dataclasses import dataclass
-
 from soulstruct.base.params.param_row import *
 from soulstruct.eldenring.game_types import *
 from soulstruct.eldenring.params.enums import *
 from soulstruct.utilities.binary import *
 
 
-# noinspection PyDataclass
-@dataclass(slots=True)
 class THROW_DIRECTION_SFX_PARAM_ST(ParamRow):
     SfxId00: int = ParamField(
         int, "sfxId_00", default=0,

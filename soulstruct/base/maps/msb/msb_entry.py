@@ -29,7 +29,7 @@ from soulstruct.utilities.text import pad_chars
 
 from .enums import BaseMSBSubtype, MSBSupertype
 from .field_info import MapFieldMetadata, FIELD_INFO
-from .utils import MSBBrokenEntryReference, GroupBitSet128, GroupBitSet256, GroupBitSet1024
+from .utils import MSBBrokenEntryReference, BitSet128, BitSet256, BitSet1024
 from .region_shapes import RegionShape, RegionShapeType, SHAPE_TYPE_CLASSES
 
 if tp.TYPE_CHECKING:
@@ -50,9 +50,9 @@ _BASIC_ENTRY_TYPES = {
     "list[int]": list,
     "list[float]": list,
     # No `tuple` fields in entries (makes element assignment too annoying).
-    "GroupBitSet128": GroupBitSet128,
-    "GroupBitSet256": GroupBitSet256,
-    "GroupBitSet1024": GroupBitSet1024,
+    "BitSet128": BitSet128,
+    "BitSet256": BitSet256,
+    "BitSet1024": BitSet1024,
     "Vector2": Vector2,
     "Vector3": Vector3,
     "Vector4": Vector4,
@@ -82,7 +82,6 @@ def EntryRef(list_name: str, field_name="", array_size: int = None) -> dict[str,
     return metadata
 
 
-@dataclass(slots=True)
 class MSBBinaryStruct(BinaryStruct, abc.ABC):
     """Allows more `MSBEntry` arguments for unpacking/packing."""
 
@@ -146,7 +145,6 @@ class MSBBinaryStruct(BinaryStruct, abc.ABC):
         pass
 
 
-@dataclass(slots=True)
 class MSBHeaderStruct(MSBBinaryStruct, abc.ABC):
     """Supports basic headers and allows easy extension. Must be inherited to define actual field order."""
 
@@ -386,12 +384,12 @@ class MSBEntry(abc.ABC):
         if cls._CUSTOM_JSON_DECODERS is None:
             decoders = {}
             for f in cls.get_entry_fields():
-                if f.type in (GroupBitSet128, GroupBitSet128.__name__):
-                    decoders[f.name] = GroupBitSet128.from_repr
-                elif f.type in (GroupBitSet256, GroupBitSet256.__name__):
-                    decoders[f.name] = GroupBitSet256.from_repr
-                elif f.type in (GroupBitSet1024, GroupBitSet1024.__name__):
-                    decoders[f.name] = GroupBitSet1024.from_repr
+                if f.type in (BitSet128, BitSet128.__name__):
+                    decoders[f.name] = BitSet128.from_repr
+                elif f.type in (BitSet256, BitSet256.__name__):
+                    decoders[f.name] = BitSet256.from_repr
+                elif f.type in (BitSet1024, BitSet1024.__name__):
+                    decoders[f.name] = BitSet1024.from_repr
                 else:
                     for check_type in (Vector2, Vector3, Vector4):
                         if f.type in (check_type, check_type.__name__):
@@ -497,7 +495,7 @@ class MSBEntry(abc.ABC):
         """NOTE: This converts types to JSON-ready types. Use `.asdict()` for a straightforward field value mapping."""
         default_values = self.get_default_values() if ignore_defaults else {}
 
-        data = {"name": self.name}
+        data = {"name": self.name}  # type: dict[str, str | dict | list]
         if not ignore_defaults or self.description:
             data["description"] = self.description
 
@@ -513,8 +511,8 @@ class MSBEntry(abc.ABC):
                     raise ValueError(
                         f"Invalid MSB entry `{value.name}` referenced by `{self.name}`."
                     ) from ex
-                if subtype_list.supertype == MSBSupertype.PARTS:
-                    # Parts have unique names, so we can safely reference those names instead of indices.
+                if subtype_list.supertype in {MSBSupertype.MODELS, MSBSupertype.PARTS}:
+                    # Models and Parts have unique names, so we can safely reference those names instead of indices.
                     data[name] = {
                         "subtype": (subtype_list.supertype, subtype_list.subtype_name),
                         "entry_name": value.name,
@@ -542,7 +540,7 @@ class MSBEntry(abc.ABC):
             elif isinstance(value, BaseVector):
                 data[name] = list(value)
             else:
-                # Custom types like `Vector3`, `GroupBitSet`, and `RegionShape` can decode their own string `repr`.
+                # Custom types like `Vector3`, `BitSet`, and `RegionShape` can decode their own string `repr`.
                 data[name] = value
         return data
 
@@ -696,16 +694,16 @@ class MSBEntry(abc.ABC):
                     super(MSBEntry, self).__setattr__(field_name, value)
                     return
 
-                if field_type in {"GroupBitSet128", "GroupBitSet256", "GroupBitSet1024"}:
-                    # `GroupBitSet` subclass of some maximum count.
-                    if not isinstance(value, (GroupBitSet128, GroupBitSet256, GroupBitSet1024)):
+                if field_type in {"BitSet128", "BitSet256", "BitSet1024"}:
+                    # `BitSet` subclass of some maximum count.
+                    if not isinstance(value, (BitSet128, BitSet256, BitSet1024)):
                         # Lists will be interpreted as packed uints, and sets as enabled bits.
                         if field_type.endswith("128"):
-                            value = GroupBitSet128(value)
+                            value = BitSet128(value)
                         elif field_type.endswith("256"):
-                            value = GroupBitSet256(value)
+                            value = BitSet256(value)
                         else:  # field_type.endswith("1024"):
-                            value = GroupBitSet1024(value)
+                            value = BitSet1024(value)
                     super(MSBEntry, self).__setattr__(field_name, value)
                     return
 
@@ -778,7 +776,7 @@ class MSBEntry(abc.ABC):
         if self.cls_name == "MSBDummyCharacter" and value.__class__.__name__ == "MSBAssetModel":
             # Happens in Elden Ring: e.g. 'AEG099_320'
             return True
-        if self.cls_name == "MSBUnusedAsset" and value.__class__.__name__ == "MSBCharacterModel":
+        if self.cls_name == "MSBDummyAsset" and value.__class__.__name__ == "MSBCharacterModel":
             # Happens in Elden Ring.
             return True
         if self.cls_name == "MSBConnectCollision" and value.__class__.__name__ == "MSBMapPieceModel":
@@ -864,12 +862,14 @@ class MSBEntry(abc.ABC):
                             display_type = bool
                         case "str":
                             display_type = str
-                        case "GroupBitSet128":
-                            display_type = GroupBitSet128
-                        case "GroupBitSet256":
-                            display_type = GroupBitSet256
-                        case "GroupBitSet1024":
-                            display_type = GroupBitSet1024
+                        case "BitSet128":
+                            display_type = BitSet128
+                        case "BitSet256":
+                            display_type = BitSet256
+                        case "BitSet1024":
+                            display_type = BitSet1024
+                        case "RegionShape":
+                            display_type = RegionShape
                         case "Vector2":
                             display_type = Vector2
                         case "Vector3":
