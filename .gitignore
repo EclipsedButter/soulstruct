@@ -118,3 +118,9 @@ venv.bak/
 .mypy_cache/
 
 .DS_Store
+*.dylib
+constrata
+soulstruct_havok
+scipy
+scipy.libs
+colorama
