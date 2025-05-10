@@ -19,7 +19,7 @@ class TexconvError(SoulstructError):
 def texconv(*args):
     texconv_path = PACKAGE_PATH("base/textures/texconv")
     if not texconv_path.is_file():
-        raise FileNotFoundError("Cannot find `texconv` executable that should be bundled with Soulstruct in 'base/textures'.")
+        raise FileNotFoundError("Cannot find native `texconv` executable. Please build native texconv by https://github.com/matyalatte/Texconv-Custom-DLL/blob/main/docs/Build-on-Unix.md, and place in 'base/textures'.")
     if str(args[-1])[0] in ('/','-'):
         args = args[:-1] + ('--',) + args[-1:]
     return subprocess.run(

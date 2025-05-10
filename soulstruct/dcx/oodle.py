@@ -16,18 +16,15 @@ __all__ = [
     "LOAD_DLL",
 ]
 
-#! BUTTER
-import os
-os.environ['PATH'] += ':/opt/homebrew/bin' #wine, other apps
-os.environ['PATH'] += ':/opt/custom/bin' #texconv shortcut
-import zugbruecke.ctypes as c
-#!
+import ctypes as c
 
 import logging
 import typing as tp
 from enum import IntEnum
 from functools import wraps
 from pathlib import Path
+import os
+import re
 
 from soulstruct import SEKIRO_PATH, ELDEN_RING_PATH
 from soulstruct.utilities.files import PACKAGE_PATH
@@ -41,11 +38,12 @@ except ImportError:
     colorama = None
     YELLOW = RESET = ""
 
+zugbruecke = False
 
 _LOGGER = logging.getLogger("soulstruct")
 
 
-__DLL_NAME = "oo2core_6_win64.dll"
+__DLL_NAME = ""
 __DLL = None  # type: tp.Optional[c.WinDLL]
 
 
@@ -235,7 +233,7 @@ def compress(
 
 
 @_dll_func_wrapper
-def decompress(comp_buf: bytes, decompressed_size: int):
+def decompress(comp_buf: bytes, decompressed_size: int, compressor = Compressor.Kraken): #! BUTTER
     """Uses the same default values as `SoulsFormats`.
 
     Note that `decompressed_size` is required, and can be found in the `DCX` header.
@@ -243,7 +241,10 @@ def decompress(comp_buf: bytes, decompressed_size: int):
     comp_buf_size = len(comp_buf)
     # noinspection PyCallingNonCallable,PyTypeChecker
     comp_buf_array = (c.c_char * comp_buf_size)(*comp_buf)
-    max_raw_buf_size = __DLL_GetDecodeBufferSize(decompressed_size, True)
+    if zugbruecke:
+        max_raw_buf_size = __DLL_GetDecodeBufferSize(decompressed_size, True)
+    else:
+        max_raw_buf_size = __DLL_GetDecodeBufferSize(compressor, decompressed_size, True)
     raw_buf_array = (c.c_char * max_raw_buf_size)()
 
     actual_raw_buf_size = __DLL_Decompress(
@@ -273,14 +274,25 @@ def decompress(comp_buf: bytes, decompressed_size: int):
 def find_oodle_dll() -> str:
     """Try to find DLL at Soulstruct, Sekiro, or Elden Ring paths."""
     _auto_oodle_locations = (
-        PACKAGE_PATH(__DLL_NAME),
-        PACKAGE_PATH("..", __DLL_NAME),
+        PACKAGE_PATH(),
+        PACKAGE_PATH("..",),
+        PACKAGE_PATH("..",".."),
         Path(SEKIRO_PATH, __DLL_NAME),
         Path(ELDEN_RING_PATH, __DLL_NAME),
     )
+
+    print(f"Searching locations: {_auto_oodle_locations}")
+
+    if not zugbruecke:
+        file_pattern = re.compile('^(lib)?oo2core(mac)?(64)?(_(dbg|debug))?(\.2(\.([6-9]|1[0-2])(\.[0-9]?[0-9])?)?)?\.dylib$')
+    else:
+        file_pattern = re.compile('^oo2core(_([6-9]|1[0-2])(\.[0-9]?[0-9])?)?(_win64)?(_(dbg|debug))?\.dll$')
+
     for _location in _auto_oodle_locations:
-        if _location.exists():
-            return str(_location)
+        for _, __, files in os.walk(str(_location)):
+            for file in files:
+                if file_pattern.match(file):
+                    return str(_location / file)
 
     # DLL not found in one of these default locations.
     print(
@@ -294,7 +306,7 @@ def find_oodle_dll() -> str:
 def LOAD_DLL(dll_path: str = ""):
     """Load Oodle DLL from specified path, or search for it in default locations."""
 
-    if not hasattr(c, "WinDLL"):
+    if not hasattr(c, "WinDLL") and zugbruecke:
         raise MissingOodleDLLError(
             "Can currently only load Oodle DLL on Windows. Oodle (DCX_KRAK) compression unavailable."
         )
@@ -303,8 +315,10 @@ def LOAD_DLL(dll_path: str = ""):
         dll_path = find_oodle_dll()
         if not dll_path:
             raise MissingOodleDLLError(
-                "Could not find `oo2core_6_win64.dll` in Soulstruct, Sekiro, or Elden Ring paths."
+                "Could not find `oo2core_6_win64.dll` or `liboo2coremac64.2.x` in Soulstruct, Sekiro, or Elden Ring paths."
             )
+        else:
+            print(f"Found oodle at {dll_path}")
 
     global __DLL
     global __DLL_Compress, __DLL_Decompress
@@ -314,7 +328,10 @@ def LOAD_DLL(dll_path: str = ""):
         raise MissingOodleDLLError(f"Oodle DLL path invalid: {dll_path}")
 
     try:
-        __DLL = c.WinDLL(dll_path)  # uses `stdcall` convention, not `cdecl`
+        if zugbruecke:
+            __DLL = c.WinDLL(dll_path)  # uses `stdcall` convention, not `cdecl`
+        else:
+            __DLL = c.CDLL(dll_path)
     except Exception as ex:
         raise MissingOodleDLLError(f"Failed to load Oodle DLL from path '{dll_path}'. Error: {ex}")
 
@@ -393,16 +410,34 @@ def LOAD_DLL(dll_path: str = ""):
 
     __DLL_GetDecodeBufferSize = __DLL["OodleLZ_GetDecodeBufferSize"]
     __DLL_GetDecodeBufferSize.restype = c.c_long
-    __DLL_GetDecodeBufferSize.argtypes = (
-        c.c_long,  # rawSize
-        c.c_bool,  # corruptionPossible
-    )
-
+    if zugbruecke or ('.2.6' in dll_path or '.2.7' in dll_path):
+        __DLL_GetDecodeBufferSize.argtypes = (
+            c.c_long,  # rawSize
+            c.c_bool,  # corruptionPossible
+        )
+    else:
+        __DLL_GetDecodeBufferSize.argtypes = (
+            c.c_int,   # compressor
+            c.c_long,  # rawSize
+            c.c_bool,  # corruptionPossible
+        )
 
 # Load DLL automatically.
 try:
     LOAD_DLL()
 except MissingOodleDLLError as load_ex:
     _LOGGER.warning(
-        f"Could not find/load Oodle DLL. DCX_KRAK compression/decompression will be unavailable. Error: {load_ex}"
+        f"Could not find/load native Oodle 2.x dylib. Error: {load_ex}\n\nAttempting load with zugbruecke..."
     )
+    try:
+        #! BUTTER
+        os.environ['PATH'] += ':/opt/homebrew/bin' #wine, other apps
+        import zugbruecke.ctypes as c
+        #!
+        __DLL_NAME = "oo2core_6_win64.dll"
+        zugbruecke = True
+        LOAD_DLL()
+    except MissingOodleDLLError as load_ex:
+        _LOGGER.warning(
+            f"Could not find/load Oodle DLL. DCX_KRAK compression/decompression will be unavailable. Error: {load_ex}"
+        )
